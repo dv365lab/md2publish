@@ -168,7 +168,7 @@ console.log('hello')
     )
   })
 
-  it('copies wechat code blocks with portable formatting and preserved whitespace', () => {
+  it('copies wechat code blocks as one editable box with compact line breaks', () => {
     const markdown = `\`\`\`bash
 xrun -64bit -uvm -f filelist.f \\
   +UVM_TESTNAME=packet_stress_test \\
@@ -178,13 +178,15 @@ xrun -64bit -uvm -f filelist.f \\
     const zsxqHtml = renderClipboardHtml(markdown, 'zsxq')
 
     expect(wechatHtml).toContain('<section style="margin:24px 0;">')
-    expect(wechatHtml).toContain('<pre style="')
-    expect(wechatHtml).toContain('<code style="')
+    expect(wechatHtml).toContain('<section style="padding:18px 20px;')
+    expect(wechatHtml).toContain('<p style="margin:0;padding:0;')
     expect(wechatHtml).toContain('background-color:#eff3f8')
     expect(wechatHtml).toContain('white-space:pre-wrap')
     expect(wechatHtml).toContain('text-align:left')
     expect(wechatHtml).toContain('word-spacing:normal')
-    expect(wechatHtml).toContain('xrun -64bit -uvm -f filelist.f \\\n  +UVM_TESTNAME=packet_stress_test')
+    expect(wechatHtml).toContain('xrun -64bit -uvm -f filelist.f \\<br>  +UVM_TESTNAME=packet_stress_test')
+    expect(wechatHtml).not.toContain('<pre')
+    expect(wechatHtml).not.toContain('<code')
     expect(zsxqHtml).not.toContain('<section style="margin:24px 0;">')
   })
 

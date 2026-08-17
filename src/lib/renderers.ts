@@ -311,10 +311,11 @@ const wechatCodeFontFamily =
   "'SFMono-Regular','Cascadia Code',Consolas,'Liberation Mono',monospace"
 
 const renderWechatClipboardCode = (label: string, code: string) => {
-  const preStyle = `margin:0;padding:18px 20px;box-sizing:border-box;max-width:100%;overflow-x:auto;border-radius:10px;background-color:#eff3f8;color:#1f2937;font-family:${wechatCodeFontFamily};font-size:14px;line-height:1.8;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;text-align:left;letter-spacing:normal;word-spacing:normal;tab-size:2;`
-  const codeStyle = `display:block;margin:0;padding:0;background:transparent;color:inherit;font-family:${wechatCodeFontFamily};font-size:inherit;line-height:inherit;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;text-align:left;letter-spacing:normal;word-spacing:normal;`
+  const boxStyle = `padding:18px 20px;box-sizing:border-box;max-width:100%;overflow-x:auto;border-radius:10px;background-color:#eff3f8;color:#1f2937;font-family:${wechatCodeFontFamily};font-size:14px;line-height:1.65;text-align:left;letter-spacing:normal;word-spacing:normal;tab-size:2;`
+  const paragraphStyle = `margin:0;padding:0;color:inherit;font-family:inherit;font-size:inherit;line-height:inherit;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;text-align:left;letter-spacing:normal;word-spacing:normal;`
+  const editableCode = escapeHtml(code).replace(/\n/g, '<br>')
 
-  return `<section style="margin:24px 0;"><p style="margin:0 0 10px;line-height:1.8;font-weight:700;text-align:left;">${escapeHtml(label)}</p><pre style="${preStyle}"><code style="${codeStyle}">${escapeHtml(code)}</code></pre></section>`
+  return `<section style="margin:24px 0;"><p style="margin:0 0 10px;line-height:1.8;font-weight:700;text-align:left;">${escapeHtml(label)}</p><section style="${boxStyle}"><p style="${paragraphStyle}">${editableCode}</p></section></section>`
 }
 
 export const renderClipboardHtml = (
