@@ -57,8 +57,10 @@ npm run dev
 5. 使用最新版 Chrome 或 Edge 打开终端显示的地址，通常是：
 
 ```text
-http://localhost:5173/
+http://127.0.0.1:5173/
 ```
+
+> ⚠️ 在 Windows 上请始终使用 `127.0.0.1` 而不是 `localhost`：`localhost` 会优先解析为 IPv6 回环地址 `::1`，而部分 Windows 机器的防火墙会拦截 IPv6 回环连接，导致 Vite 终端显示 `ready` 但浏览器报 `ERR_CONNECTION_REFUSED`。项目已在 `vite.config.ts` 中通过 `server.host: '127.0.0.1'` 将开发服务器固定绑定到 IPv4 回环地址。
 
 6. 粘贴或导入 Markdown，点击知识星球版的「复制文章」，等待页面提示表格已经转为高清图片，然后粘贴到知识星球编辑器。微信公众号使用右侧的「复制」按钮。
 7. 使用结束后回到 PowerShell，按 `Ctrl+C` 停止服务。
@@ -94,19 +96,50 @@ npm run dev
 5. 使用最新版 Chrome 打开终端显示的地址，通常是：
 
 ```text
-http://localhost:5173/
+http://127.0.0.1:5173/
 ```
 
 也可以在终端中执行：
 
 ```bash
-open http://localhost:5173/
+open http://127.0.0.1:5173/
 ```
 
 6. 粘贴或导入 Markdown，点击知识星球版的「复制文章」，等待表格图片生成和复制完成，再粘贴到知识星球编辑器。微信公众号使用右侧的「复制」按钮。
 7. 使用结束后回到终端，按 `Control+C` 停止服务。
 
 macOS 建议优先使用最新版 Chrome。Safari 可以打开和预览页面，但其剪贴板权限和用户激活规则更严格，表格图片生成后再复制可能失败；遇到复制失败时请改用 Chrome。
+
+## 故障排查
+
+### Windows 上 Vite 显示 ready 但浏览器打不开页面
+
+症状：PowerShell 显示 `VITE ready` 和 `Local: http://localhost:5173/`，但浏览器报 `ERR_CONNECTION_REFUSED` 或 `EACCES`。
+
+原因：`localhost` 优先解析为 IPv6 回环地址 `::1`，而部分 Windows 机器的防火墙会拦截 IPv6 回环连接。项目已固定 dev server 绑定到 `127.0.0.1`（见 `vite.config.ts` 的 `server.host`），但**浏览器地址栏仍可能访问 `localhost`（`::1`）而被拦截**。
+
+解决：
+
+1. 始终使用终端输出的完整地址 `http://127.0.0.1:5173/` 访问，不要手动输入 `localhost`
+2. 如果仍打不开，检查是否有残留的旧 dev server 进程占用端口：
+
+```powershell
+Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -ge 5100 -and $_.LocalPort -le 5200 }
+```
+
+找到占用 `5173` 的 `OwningProcess` 后结束该进程（`Stop-Process -Id <进程号> -Force`），再重新 `npm run dev`
+
+3. 快速判断本机 IPv6 回环是否被拦截：
+
+```powershell
+node -e "require('net').connect(0,'::1',()=>process.exit(0)).on('error',e=>{console.log('IPv6 loopback blocked:',e.code);process.exit(1)})"
+```
+
+如果输出 `EACCES`，说明是防火墙拦截 IPv6 回环，按第 1 步使用 `127.0.0.1` 即可；如需彻底解决，可在 Windows 防火墙中放行 IPv6 回环连接。
+
+### 端口被占用
+
+`5173` 被占用时 Vite 会自动换用 `5174` 等端口，以终端实际输出的 `Local` 地址为准。
 
 ## 构建与测试
 

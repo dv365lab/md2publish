@@ -101,10 +101,6 @@ const headingTextForPlatform = (
       : `${toChineseSectionNumber(sectionNumber)}、${text}`
   }
 
-  if (platform === 'wechat' && depth === 3) {
-    return `（小节）${text}`
-  }
-
   return text
 }
 
