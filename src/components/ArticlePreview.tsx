@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import type { InlineContent, ListBlock } from '../lib/markdown'
 import { HEADING_APPEARANCE, type Platform, type RenderNode } from '../lib/renderers'
 
 type ArticlePreviewProps = {
@@ -7,6 +8,34 @@ type ArticlePreviewProps = {
   className?: string
   style?: CSSProperties
   testId?: string
+}
+
+const renderInlineContent = (content: InlineContent[]) =>
+  content.map((part, index) =>
+    part.type === 'link' ? (
+      <a key={`link-${index}`} href={part.url}>
+        {part.text}
+      </a>
+    ) : (
+      <span key={`text-${index}`}>{part.value}</span>
+    ),
+  )
+
+const renderList = (list: ListBlock, key: string) => {
+  const Tag = list.ordered ? 'ol' : 'ul'
+
+  return (
+    <Tag key={key} className="article-list" start={list.ordered ? list.start : undefined}>
+      {list.items.map((item, itemIndex) => (
+        <li key={`${key}-${itemIndex}`}>
+          {renderInlineContent(item.content)}
+          {item.children.map((child, childIndex) =>
+            renderList(child, `${key}-${itemIndex}-child-${childIndex}`),
+          )}
+        </li>
+      ))}
+    </Tag>
+  )
 }
 
 export function ArticlePreview({ nodes, platform, className, style, testId }: ArticlePreviewProps) {
@@ -34,13 +63,9 @@ export function ArticlePreview({ nodes, platform, className, style, testId }: Ar
             )
           case 'list':
             return (
-              <ul key={key} className="article-block article-list">
-                {node.items.map((item, itemIndex) => (
-                  <li key={`${key}-${itemIndex}`}>
-                    {node.ordered ? `${itemIndex + 1}. ${item}` : item}
-                  </li>
-                ))}
-              </ul>
+              <div key={key} className="article-block">
+                {renderList(node, key)}
+              </div>
             )
           case 'quote':
             return (

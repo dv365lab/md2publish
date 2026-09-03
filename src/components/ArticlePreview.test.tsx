@@ -54,6 +54,35 @@ describe('ArticlePreview', () => {
     expect(image).toHaveStyle({ maxWidth: '100%', height: 'auto' })
   })
 
+  it.each(['zsxq', 'wechat'] as const)(
+    'preserves nested navigation hierarchy and clickable links for %s',
+    (platform) => {
+      const nodes = buildRenderNodes(
+        `## 导航栏
+
+- [第一篇：精要入门与综合进阶](#第一篇精要入门与综合进阶)
+  - [第一部分：AMBA ACE 协议面试题与详细答案](#第一部分-amba-ace-协议面试题与详细答案)
+    - [一、ACE 基础与体系结构](#一ace-基础与体系结构)
+      - [1. 什么是 ACE？](#1-什么是-ace)`,
+        platform,
+      )
+
+      render(<ArticlePreview nodes={nodes} platform={platform} />)
+
+      const lists = screen.getAllByRole('list')
+      expect(lists).toHaveLength(4)
+      expect(screen.getByRole('link', { name: '第一篇：精要入门与综合进阶' })).toHaveAttribute(
+        'href',
+        '#第一篇精要入门与综合进阶',
+      )
+      expect(screen.getByRole('link', { name: '1. 什么是 ACE？' })).toHaveAttribute(
+        'href',
+        '#1-什么是-ace',
+      )
+      expect(screen.queryByText('（#第一篇精要入门与综合进阶）')).toBeNull()
+    },
+  )
+
   it('renders every heading level with a distinct color and bold weight', () => {
     const nodes = buildRenderNodes('# 一级标题\n\n## 二级标题\n\n### 三级标题', 'zsxq')
 

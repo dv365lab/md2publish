@@ -5,6 +5,7 @@ import { visit } from 'unist-util-visit'
 import type {
   Root,
   RootContent,
+  List,
   ListItem,
   PhrasingContent,
   InlineCode,
@@ -14,10 +15,25 @@ import type {
   TableCell,
 } from 'mdast'
 
+export type InlineContent =
+  | { type: 'text'; value: string }
+  | { type: 'link'; text: string; url: string }
+
+export type ListItemBlock = {
+  content: InlineContent[]
+  children: ListBlock[]
+}
+
+export type ListBlock = {
+  ordered: boolean
+  start: number
+  items: ListItemBlock[]
+}
+
 type Block =
   | { type: 'heading'; depth: number; text: string }
   | { type: 'paragraph'; text: string }
-  | { type: 'list'; ordered: boolean; items: string[] }
+  | { type: 'list'; ordered: boolean; start: number; items: ListItemBlock[] }
   | { type: 'quote'; text: string[] }
   | { type: 'code'; lang: string; code: string }
   | { type: 'thematicBreak' }
@@ -76,6 +92,63 @@ const imageToText = (node: Image) => {
   return `图片：${label}（${node.url}）`
 }
 
+const inlineContent = (nodes: PhrasingContent[] = []): InlineContent[] => {
+  const content: InlineContent[] = []
+
+  const appendText = (value: string) => {
+    if (!value) {
+      return
+    }
+
+    const previous = content.at(-1)
+    if (previous?.type === 'text') {
+      previous.value += value
+      return
+    }
+
+    content.push({ type: 'text', value })
+  }
+
+  const appendContent = (parts: InlineContent[]) => {
+    for (const part of parts) {
+      if (part.type === 'text') {
+        appendText(part.value)
+      } else {
+        content.push(part)
+      }
+    }
+  }
+
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'text':
+        appendText(node.value)
+        break
+      case 'emphasis':
+      case 'strong':
+      case 'delete':
+        appendContent(inlineContent(node.children))
+        break
+      case 'inlineCode':
+        appendText(`“${node.value}”`)
+        break
+      case 'break':
+        appendText('\n')
+        break
+      case 'link':
+        content.push({ type: 'link', text: joinInline(node.children), url: node.url })
+        break
+      case 'image':
+        appendText(imageToText(node))
+        break
+      default:
+        break
+    }
+  }
+
+  return content
+}
+
 const paragraphToBlocks = (nodes: PhrasingContent[]): Block[] => {
   const blocks: Block[] = []
   let textNodes: PhrasingContent[] = []
@@ -118,37 +191,48 @@ const tableCellToText = (cell: TableCell) => joinInline(cell.children)
 
 const tableRowToText = (row: TableRow) => row.children.map(tableCellToText)
 
-const listItemToText = (item: ListItem): string => {
-  const parts: string[] = []
+const listItemToBlock = (item: ListItem): ListItemBlock => ({
+  content: item.children.flatMap((child) =>
+    child.type === 'paragraph' ? inlineContent(child.children) : [],
+  ),
+  children: item.children
+    .filter((child): child is List => child.type === 'list')
+    .map(listToBlock),
+})
+
+const listToBlock = (list: List): ListBlock => ({
+  ordered: Boolean(list.ordered),
+  start: list.start ?? 1,
+  items: list.children.map(listItemToBlock),
+})
+
+const inlineContentToText = (content: InlineContent[]) =>
+  content
+    .map((part) => (part.type === 'link' ? `${part.text}（${part.url}）` : part.value))
+    .join('')
+    .trim()
+
+const listItemToText = (item: ListItemBlock): string => {
+  const parts = [inlineContentToText(item.content)]
 
   for (const child of item.children) {
-    if (child.type === 'paragraph') {
-      const text = joinInline(child.children)
-      if (text) {
-        parts.push(text)
-      }
-      continue
-    }
+    const nestedItems = child.items
+      .map((nestedItem, index) => {
+        const nestedText = listItemToText(nestedItem)
+        if (!nestedText) {
+          return ''
+        }
 
-    if (child.type === 'list') {
-      const nestedItems = child.children
-        .map((nestedItem, index) => {
-          const nestedText = listItemToText(nestedItem)
-          if (!nestedText) {
-            return ''
-          }
+        return child.ordered ? `${child.start + index}. ${nestedText}` : `- ${nestedText}`
+      })
+      .filter(Boolean)
 
-          return child.ordered ? `${index + 1}. ${nestedText}` : `- ${nestedText}`
-        })
-        .filter(Boolean)
-
-      if (nestedItems.length > 0) {
-        parts.push(nestedItems.join('\n'))
-      }
+    if (nestedItems.length > 0) {
+      parts.push(nestedItems.join('\n'))
     }
   }
 
-  return parts.join('\n').trim()
+  return parts.filter(Boolean).join('\n').trim()
 }
 
 export const parseMarkdown = (input: string): Block[] => {
@@ -170,9 +254,9 @@ export const parseMarkdown = (input: string): Block[] => {
     }
 
     if (current.type === 'list') {
-      const items = current.children.map(listItemToText).filter(Boolean)
-      if (items.length > 0) {
-        blocks.push({ type: 'list', ordered: Boolean(current.ordered), items })
+      const list = listToBlock(current)
+      if (list.items.length > 0) {
+        blocks.push({ type: 'list', ...list })
       }
       continue
     }
@@ -185,13 +269,14 @@ export const parseMarkdown = (input: string): Block[] => {
           }
 
           if (child.type === 'list') {
-            return child.children
+            const list = listToBlock(child)
+            return list.items
               .map((item, itemIndex) => {
                 const text = listItemToText(item)
                 if (!text) {
                   return ''
                 }
-                return child.ordered ? `${itemIndex + 1}. ${text}` : `- ${text}`
+                return list.ordered ? `${list.start + itemIndex}. ${text}` : `- ${text}`
               })
               .filter(Boolean)
               .join('\n')

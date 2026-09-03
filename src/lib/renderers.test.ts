@@ -43,6 +43,18 @@ console.log('hello')
     expect(result).toContain('图注：封面图')
   })
 
+  it.each(['zsxq', 'wechat'] as const)(
+    'omits markdown separators from every %s output format',
+    (platform) => {
+      const source = '第一部分\n\n---\n\n## 第二部分'
+
+      expect(buildRenderNodes(source, platform).some((node) => node.type === 'thematicBreak')).toBe(false)
+      expect(renderArticle(source, platform)).not.toContain('——')
+      expect(renderClipboardArticle(source, platform)).not.toContain('——')
+      expect(renderClipboardHtml(source, platform)).not.toContain('>——')
+    },
+  )
+
   it('normalizes numbered headings and converts markdown tables', () => {
     const result = renderArticle(
       `## 一、先看结论：四种环境到底有什么不同
@@ -124,6 +136,29 @@ console.log('hello')
     expect(result).toContain('>使用场景</th>')
     expect(result).toContain('>Windows + Claude Code</td>')
   })
+
+  it.each(['zsxq', 'wechat'] as const)(
+    'preserves nested navigation hierarchy and internal links in copied html for %s',
+    (platform) => {
+      const markdown = `## 导航栏
+
+- [第一篇：精要入门与综合进阶](#第一篇精要入门与综合进阶)
+  - [第一部分：AMBA ACE 协议面试题与详细答案](#第一部分-amba-ace-协议面试题与详细答案)
+    - [一、ACE 基础与体系结构](#一ace-基础与体系结构)
+      - [1. 什么是 ACE？](#1-什么是-ace)`
+
+      const result = renderClipboardHtml(markdown, platform)
+
+      expect(result.match(/<ul/g)).toHaveLength(4)
+      expect(result).toContain(
+        '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a><ul>',
+      )
+      expect(result).toContain(
+        '<a href="#1-什么是-ace">1. 什么是 ACE？</a>',
+      )
+      expect(result).not.toContain('（#第一篇精要入门与综合进阶）')
+    },
+  )
 
   it.each(['zsxq', 'wechat'] as const)(
     'copies colored bold headings for %s',
@@ -234,6 +269,8 @@ xrun -64bit -uvm -f filelist.f \\
     expect(result).not.toContain('<table')
     expect(result).toContain('src="data:image/png;base64,dGFibGU="')
     expect(result).toContain('alt="表格 1"')
+    expect(result).not.toContain('&nbsp;')
+    expect(result).toContain('<figure style="margin:0;text-align:center;">')
     expect(result.indexOf('表格之前')).toBeLessThan(result.indexOf('alt="表格 1"'))
     expect(result.indexOf('alt="表格 1"')).toBeLessThan(result.indexOf('表格之后'))
   })

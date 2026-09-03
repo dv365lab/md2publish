@@ -1,4 +1,4 @@
-import { parseMarkdown } from './markdown'
+import { parseMarkdown, type InlineContent, type ListItemBlock } from './markdown'
 
 export type Platform = 'zsxq' | 'wechat'
 export type ImageSourceMap = Readonly<Record<string, string>>
@@ -6,7 +6,7 @@ export type ImageSourceMap = Readonly<Record<string, string>>
 export type RenderNode =
   | { type: 'heading'; text: string; level: 1 | 2 | 3 }
   | { type: 'paragraph'; text: string }
-  | { type: 'list'; ordered: boolean; items: string[] }
+  | { type: 'list'; ordered: boolean; start: number; items: ListItemBlock[] }
   | { type: 'quote'; lines: string[] }
   | { type: 'code'; label: string; code: string; trailingColon: boolean }
   | { type: 'thematicBreak'; marker: string }
@@ -88,7 +88,6 @@ const toChineseSectionNumber = (value: number) => {
 const headingTextForPlatform = (
   depth: number,
   text: string,
-  platform: Platform,
   sectionNumber: number,
 ) => {
   if (depth <= 1) {
@@ -116,7 +115,7 @@ export const buildRenderNodes = (
   platform: Platform,
   imageSources: ImageSourceMap = {},
 ): RenderNode[] => {
-  const blocks = parseMarkdown(markdown)
+  const blocks = parseMarkdown(markdown).filter((block) => block.type !== 'thematicBreak')
   let sectionNumber = 0
 
   return blocks.map((block) => {
@@ -132,19 +131,17 @@ export const buildRenderNodes = (
             platform === 'zsxq'
               ? renderZsxqHeading(block.depth)
               : renderWechatHeading(block.depth),
-          text: headingTextForPlatform(block.depth, block.text, platform, sectionNumber),
+          text: headingTextForPlatform(block.depth, block.text, sectionNumber),
         }
       }
       case 'paragraph':
         return { type: 'paragraph', text: block.text }
       case 'list':
-        return { type: 'list', ordered: block.ordered, items: block.items }
+        return { type: 'list', ordered: block.ordered, start: block.start, items: block.items }
       case 'quote':
         return { type: 'quote', lines: block.text }
       case 'code':
         return codeNode(block.lang, block.code, platform)
-      case 'thematicBreak':
-        return { type: 'thematicBreak', marker: platform === 'zsxq' ? '——' : '————' }
       case 'image':
         return platform === 'zsxq'
           ? {
@@ -181,6 +178,46 @@ const normalizeBlockSpacing = (blocks: string[]) =>
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 
+const inlineContentToText = (content: InlineContent[]) =>
+  content
+    .map((part) => {
+      if (part.type === 'text') {
+        return part.value
+      }
+
+      return part.url.startsWith('#') ? part.text : `${part.text}（${part.url}）`
+    })
+    .join('')
+    .trim()
+
+const listItemToPlainText = (item: ListItemBlock, depth: number): string => {
+  const lines = [inlineContentToText(item.content)]
+
+  for (const child of item.children) {
+    lines.push(
+      ...child.items.map((nestedItem, index) => {
+        const marker = child.ordered ? `${child.start + index}. ` : '- '
+        const nestedText = listItemToPlainText(nestedItem, depth + 1)
+        return `${'  '.repeat(depth + 1)}${marker}${nestedText}`
+      }),
+    )
+  }
+
+  return lines.filter(Boolean).join('\n')
+}
+
+const renderPlainList = (node: Extract<RenderNode, { type: 'list' }>, platform: Platform) =>
+  node.items
+    .map((item, index) => {
+      const marker = node.ordered
+        ? `${node.start + index}. `
+        : platform === 'wechat'
+          ? '• '
+          : '- '
+      return `${marker}${listItemToPlainText(item, 0)}`
+    })
+    .join('\n')
+
 export const renderArticle = (
   markdown: string,
   platform: Platform,
@@ -195,15 +232,7 @@ export const renderArticle = (
       case 'paragraph':
         return node.text
       case 'list':
-        return node.items
-          .map((item, index) => {
-            if (platform === 'zsxq') {
-              return node.ordered ? `${index + 1}. ${item}` : `- ${item}`
-            }
-
-            return node.ordered ? `${index + 1}. ${item}` : `• ${item}`
-          })
-          .join('\n')
+        return renderPlainList(node, platform)
       case 'quote':
         return node.lines
           .map((line) => (platform === 'zsxq' ? `> ${line}` : `引用：${line}`))
@@ -247,15 +276,7 @@ export const renderClipboardArticle = (
       case 'paragraph':
         return node.text
       case 'list':
-        return node.items
-          .map((item, index) => {
-            if (platform === 'zsxq') {
-              return node.ordered ? `${index + 1}. ${item}` : `- ${item}`
-            }
-
-            return node.ordered ? `${index + 1}. ${item}` : `• ${item}`
-          })
-          .join('\n')
+        return renderPlainList(node, platform)
       case 'quote':
         return node.lines
           .map((line) => (platform === 'zsxq' ? line : `引用：${line}`))
@@ -303,6 +324,34 @@ const escapeHtml = (value: string) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 
+const renderInlineHtml = (content: InlineContent[]) =>
+  content
+    .map((part) =>
+      part.type === 'link'
+        ? `<a href="${escapeHtml(part.url)}">${escapeHtml(part.text)}</a>`
+        : escapeHtml(part.value),
+    )
+    .join('')
+
+const renderListHtml = (
+  ordered: boolean,
+  start: number,
+  items: ListItemBlock[],
+): string => {
+  const tag = ordered ? 'ol' : 'ul'
+  const startAttribute = ordered && start !== 1 ? ` start="${start}"` : ''
+  const listItems = items
+    .map(
+      (item) =>
+        `<li>${renderInlineHtml(item.content)}${item.children
+          .map((child) => renderListHtml(child.ordered, child.start, child.items))
+          .join('')}</li>`,
+    )
+    .join('')
+
+  return `<${tag}${startAttribute}>${listItems}</${tag}>`
+}
+
 const wechatCodeFontFamily =
   "'SFMono-Regular','Cascadia Code',Consolas,'Liberation Mono',monospace"
 
@@ -328,7 +377,9 @@ export const renderClipboardHtml = (
   return nodes
     .map((node, nodeIndex) => {
       const appendZsxqSpacer = (html: string) =>
-        platform === 'zsxq' && nodeIndex < nodes.length - 1
+        platform === 'zsxq' &&
+        nodeIndex < nodes.length - 1 &&
+        nodes[nodeIndex + 1]?.type !== 'table'
           ? `${html}${zsxqParagraphSpacer}`
           : html
 
@@ -350,9 +401,7 @@ export const renderClipboardHtml = (
           return appendZsxqSpacer(`<p style="${paragraphStyle}">${escapeHtml(node.text)}</p>`)
         }
         case 'list': {
-          const tag = node.ordered ? 'ol' : 'ul'
-          const items = node.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')
-          return `<${tag}>${items}</${tag}>`
+          return renderListHtml(node.ordered, node.start, node.items)
         }
         case 'quote':
           return appendZsxqSpacer(
@@ -371,7 +420,7 @@ export const renderClipboardHtml = (
             const currentTableIndex = tableIndex
             const tableImageSource = tableImageSources[tableIndex]
             tableIndex += 1
-            return `<figure style="margin:24px 0;text-align:center;"><img src="${escapeHtml(tableImageSource)}" alt="表格 ${currentTableIndex + 1}" style="display:block;max-width:100%;width:auto;height:auto;margin:0 auto;object-fit:contain;" /></figure>`
+            return `<figure style="margin:0;text-align:center;"><img src="${escapeHtml(tableImageSource)}" alt="表格 ${currentTableIndex + 1}" style="display:block;max-width:100%;width:auto;height:auto;margin:0 auto;object-fit:contain;" /></figure>`
           }
 
           tableIndex += 1

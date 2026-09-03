@@ -273,8 +273,19 @@
   padding-left: 28px;
 }
 
+.article-list .article-list {
+  margin-top: 10px;
+  padding-left: 28px;
+}
+
 .article-list li + li {
   margin-top: 10px;
+}
+
+.article-list a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .article-quote {

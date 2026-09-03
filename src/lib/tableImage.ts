@@ -21,7 +21,7 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, '&quot;')
 
 export const buildTableHtml = (table: TablePayload) => `
-<div style="padding:24px;background:#ffffff;font-family:'PingFang SC','Microsoft YaHei',sans-serif;">
+<div style="padding:0 24px;background:#ffffff;font-family:'PingFang SC','Microsoft YaHei',sans-serif;">
   <table style="border-collapse:collapse;width:100%;background:#ffffff;border:1px solid #d1d5db;">
     <thead>
       <tr>
