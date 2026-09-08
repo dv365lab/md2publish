@@ -10,7 +10,7 @@ export default defineConfig({
     // loopback connections, which broke the dev server (EACCES/ERR_CONNECTION_REFUSED).
     host: '127.0.0.1',
     // Fail loudly instead of silently drifting to 5174+ when 5173 is taken,
-    // so the one-click launcher (start-dev.bat) can always rely on this URL.
+    // so both one-click launchers can always rely on this URL.
     strictPort: true,
     // Automatically open the browser at the ready address (http://127.0.0.1:5173/)
     // once the dev server is up, so no manual `npm run dev` + URL typing is needed.

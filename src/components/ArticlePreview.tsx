@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { InlineContent, ListBlock } from '../lib/markdown'
-import { HEADING_APPEARANCE, type Platform, type RenderNode } from '../lib/renderers'
+import { headingAppearanceForPlatform, type Platform, type RenderNode } from '../lib/renderers'
 
 type ArticlePreviewProps = {
   nodes: RenderNode[]
@@ -40,7 +40,11 @@ const renderList = (list: ListBlock, key: string) => {
 
 export function ArticlePreview({ nodes, platform, className, style, testId }: ArticlePreviewProps) {
   return (
-    <div className={className} style={style} data-testid={testId}>
+    <div
+      className={[className, `article-output-${platform}`].filter(Boolean).join(' ')}
+      style={style}
+      data-testid={testId}
+    >
       {nodes.map((node, index) => {
         const key = `${node.type}-${index}`
 
@@ -50,7 +54,7 @@ export function ArticlePreview({ nodes, platform, className, style, testId }: Ar
               <div
                 key={key}
                 className={`article-block article-heading article-heading-${node.level}`}
-                style={HEADING_APPEARANCE[node.level]}
+                style={headingAppearanceForPlatform(platform, node.level)}
               >
                 {node.level === 1 && platform === 'zsxq' ? `【${node.text}】` : node.text}
               </div>
@@ -70,8 +74,13 @@ export function ArticlePreview({ nodes, platform, className, style, testId }: Ar
           case 'quote':
             return (
               <blockquote key={key} className="article-block article-quote">
+                {node.calloutLabel ? (
+                  <strong className="article-callout-label">{node.calloutLabel}</strong>
+                ) : null}
                 {node.lines.map((line, lineIndex) => (
-                  <p key={`${key}-${lineIndex}`}>{platform === 'zsxq' ? line : `引用：${line}`}</p>
+                  <p key={`${key}-${lineIndex}`}>
+                    {platform === 'zsxq' || node.calloutLabel ? line : `引用：${line}`}
+                  </p>
                 ))}
               </blockquote>
             )

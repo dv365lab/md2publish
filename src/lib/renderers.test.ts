@@ -160,29 +160,33 @@ console.log('hello')
     },
   )
 
-  it.each(['zsxq', 'wechat'] as const)(
-    'copies colored bold headings for %s',
-    (platform) => {
-      const result = renderClipboardHtml('# 一级标题\n\n## 二级标题\n\n### 三级标题', platform)
+  it('keeps colored bold headings for zsxq', () => {
+    const result = renderClipboardHtml('# 一级标题\n\n## 二级标题\n\n### 三级标题', 'zsxq')
 
-      expect(result).toContain('<h1 style="color:#1d4ed8;font-weight:800;')
-      expect(result).toContain('color:#7c3aed;font-weight:700;')
-      expect(result).toContain('color:#0f766e;font-weight:700;')
-      expect(result.match(/<strong>/g)).toHaveLength(3)
-    },
-  )
+    expect(result).toContain('<h1 style="color:#1d4ed8;font-weight:800;')
+    expect(result).toContain('color:#7c3aed;font-weight:700;')
+    expect(result).toContain('color:#0f766e;font-weight:700;')
+    expect(result.match(/<strong>/g)).toHaveLength(3)
+  })
 
-  it('copies wechat headings with font sizes larger than the 16px body text', () => {
-    const markdown = '# 一级标题\n\n## 二级标题\n\n### 三级标题\n\n正文内容'
-    const wechatHtml = renderClipboardHtml(markdown, 'wechat')
-    const zsxqHtml = renderClipboardHtml(markdown, 'zsxq')
+  it('copies zsxq headings bold and larger than the 16px body text', () => {
+    const html = renderClipboardHtml('# 一级标题\n\n## 二级标题\n\n### 三级标题', 'zsxq')
 
-    expect(wechatHtml).toContain('font-size:32px;line-height:1.35;')
-    expect(wechatHtml).toContain('font-size:24px;line-height:1.5;')
-    expect(wechatHtml).toContain('font-size:20px;line-height:1.6;')
-    expect(zsxqHtml).not.toContain('font-size:32px;')
-    expect(zsxqHtml).not.toContain('font-size:24px;')
-    expect(zsxqHtml).not.toContain('font-size:20px;')
+    expect(html).toContain('font-size:32px;line-height:1.35;')
+    expect(html).toContain('font-size:24px;line-height:1.5;')
+    expect(html).toContain('font-size:20px;line-height:1.6;')
+    expect(html.match(/font-weight:(?:700|800)/g)).toHaveLength(3)
+    expect(html.match(/<strong>/g)).toHaveLength(3)
+  })
+
+  it('copies wechat headings with a compact neutral hierarchy', () => {
+    const html = renderClipboardHtml('# 一级标题\n\n## 二级标题\n\n### 三级标题', 'wechat')
+
+    expect(html).toContain('font-size:26px;line-height:1.4;')
+    expect(html).toContain('font-size:22px;line-height:1.45;')
+    expect(html).toContain('font-size:20px;line-height:1.55;')
+    expect(html.match(/color:#1f2937;font-weight:700/g)).toHaveLength(3)
+    expect(html.match(/<strong>/g)).toHaveLength(3)
   })
 
   it('keeps structural spacing between adjacent zsxq headings after inline styles are removed', () => {
@@ -194,13 +198,15 @@ console.log('hello')
     expect(wechatHtml).toContain('</h2><h3>')
   })
 
-  it('keeps readable paragraph margins in copied wechat html', () => {
-    const result = renderClipboardHtml('第一段。\n\n第二段。', 'wechat')
+  it('uses balanced body line spacing in copied html', () => {
+    const wechatHtml = renderClipboardHtml('第一段。\n\n第二段。', 'wechat')
+    const zsxqHtml = renderClipboardHtml('第一段。\n\n第二段。', 'zsxq')
 
-    expect(result).toBe(
-      '<p style="margin:0 0 16px;line-height:1.9;">第一段。</p>' +
-        '<p style="margin:0 0 16px;line-height:1.9;">第二段。</p>',
+    expect(wechatHtml).toBe(
+      '<p style="margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;">第一段。</p>' +
+        '<p style="margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;">第二段。</p>',
     )
+    expect(zsxqHtml).toContain('<p style="margin:0;line-height:1.75;">第一段。</p>')
   })
 
   it('copies wechat code blocks as one editable box with compact line breaks', () => {
@@ -223,6 +229,19 @@ xrun -64bit -uvm -f filelist.f \\
     expect(wechatHtml).not.toContain('<pre')
     expect(wechatHtml).not.toContain('<code')
     expect(zsxqHtml).not.toContain('<section style="margin:24px 0;">')
+  })
+
+  it('formats markdown IMPORTANT quotes as clean wechat callouts', () => {
+    const html = renderClipboardHtml(
+      '> [!IMPORTANT] 完整资料获取方式：关注公众号后回复关键词。\n> 第二行说明。',
+      'wechat',
+    )
+
+    expect(html).not.toContain('[!IMPORTANT]')
+    expect(html).toContain('重要提示')
+    expect(html).toContain('background:#f7f8fa')
+    expect(html).toContain('完整资料获取方式：关注公众号后回复关键词。')
+    expect(html).toContain('第二行说明。')
   })
 
   it('keeps structural paragraph spacing for zsxq after inline styles are removed', () => {
@@ -252,26 +271,28 @@ xrun -64bit -uvm -f filelist.f \\
     expect(nodes.filter((node) => node.type === 'image')).toHaveLength(2)
   })
 
-  it('replaces zsxq html tables with generated images at their original positions', () => {
-    const result = renderClipboardHtml(
-      `表格之前
+  it.each(['zsxq', 'wechat'] as const)(
+    'replaces %s html tables with generated images at their original positions',
+    (platform) => {
+      const result = renderClipboardHtml(
+        `表格之前
 
 | 字段 | 内容 |
 | --- | --- |
 | 平台 | 知识星球 |
 
 表格之后`,
-      'zsxq',
-      {},
-      ['data:image/png;base64,dGFibGU='],
-    )
+        platform,
+        {},
+        ['data:image/png;base64,dGFibGU='],
+      )
 
-    expect(result).not.toContain('<table')
-    expect(result).toContain('src="data:image/png;base64,dGFibGU="')
-    expect(result).toContain('alt="表格 1"')
-    expect(result).not.toContain('&nbsp;')
-    expect(result).toContain('<figure style="margin:0;text-align:center;">')
-    expect(result.indexOf('表格之前')).toBeLessThan(result.indexOf('alt="表格 1"'))
-    expect(result.indexOf('alt="表格 1"')).toBeLessThan(result.indexOf('表格之后'))
-  })
+      expect(result).not.toContain('<table')
+      expect(result).toContain('src="data:image/png;base64,dGFibGU="')
+      expect(result).toContain('alt="表格 1"')
+      expect(result).not.toContain('&nbsp;')
+      expect(result.indexOf('表格之前')).toBeLessThan(result.indexOf('alt="表格 1"'))
+      expect(result.indexOf('alt="表格 1"')).toBeLessThan(result.indexOf('表格之后'))
+    },
+  )
 })

@@ -7,7 +7,7 @@ export type RenderNode =
   | { type: 'heading'; text: string; level: 1 | 2 | 3 }
   | { type: 'paragraph'; text: string }
   | { type: 'list'; ordered: boolean; start: number; items: ListItemBlock[] }
-  | { type: 'quote'; lines: string[] }
+  | { type: 'quote'; lines: string[]; calloutLabel?: string }
   | { type: 'code'; label: string; code: string; trailingColon: boolean }
   | { type: 'thematicBreak'; marker: string }
   | { type: 'image'; title: string; metaLabel: string; urlLabel: string; alt: string; url: string; src: string }
@@ -21,11 +21,58 @@ export const HEADING_APPEARANCE = {
   3: { color: '#0f766e', fontWeight: 700 },
 } as const satisfies Record<HeadingLevel, { color: string; fontWeight: number }>
 
-const WECHAT_HEADING_TYPOGRAPHY = {
+const HEADING_TYPOGRAPHY = {
   1: { fontSize: '32px', lineHeight: 1.35 },
   2: { fontSize: '24px', lineHeight: 1.5 },
   3: { fontSize: '20px', lineHeight: 1.6 },
 } as const satisfies Record<HeadingLevel, { fontSize: string; lineHeight: number }>
+
+const WECHAT_HEADING_APPEARANCE = {
+  1: { color: '#1f2937', fontWeight: 700 },
+  2: { color: '#1f2937', fontWeight: 700 },
+  3: { color: '#1f2937', fontWeight: 700 },
+} as const satisfies Record<HeadingLevel, { color: string; fontWeight: number }>
+
+const WECHAT_HEADING_TYPOGRAPHY = {
+  1: { fontSize: '26px', lineHeight: 1.4 },
+  2: { fontSize: '22px', lineHeight: 1.45 },
+  3: { fontSize: '20px', lineHeight: 1.55 },
+} as const satisfies Record<HeadingLevel, { fontSize: string; lineHeight: number }>
+
+const WECHAT_HEADING_LAYOUT = {
+  1: 'margin:0 0 18px;',
+  2: 'margin:24px 0 12px;padding-left:10px;border-left:4px solid #2563eb;',
+  3: 'margin:18px 0 10px;',
+} as const satisfies Record<HeadingLevel, string>
+
+export const headingAppearanceForPlatform = (platform: Platform, level: HeadingLevel) =>
+  platform === 'wechat' ? WECHAT_HEADING_APPEARANCE[level] : HEADING_APPEARANCE[level]
+
+const calloutLabels: Record<string, string> = {
+  NOTE: '说明',
+  TIP: '提示',
+  IMPORTANT: '重要提示',
+  WARNING: '注意',
+  CAUTION: '警告',
+}
+
+const normalizeQuote = (lines: string[]) => {
+  const normalizedLines = lines
+    .flatMap((line) => line.split('\n'))
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const marker = normalizedLines[0]?.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/iu)
+
+  if (!marker) {
+    return { lines: normalizedLines }
+  }
+
+  const firstLine = normalizedLines[0].replace(marker[0], '').trim()
+  return {
+    lines: [firstLine, ...normalizedLines.slice(1)].filter(Boolean),
+    calloutLabel: calloutLabels[marker[1].toUpperCase()],
+  }
+}
 
 const normalizeImageReference = (value: string) => {
   const withoutQuery = value.split(/[?#]/, 1)[0].replace(/\\/g, '/').replace(/^\.\//, '')
@@ -139,7 +186,7 @@ export const buildRenderNodes = (
       case 'list':
         return { type: 'list', ordered: block.ordered, start: block.start, items: block.items }
       case 'quote':
-        return { type: 'quote', lines: block.text }
+        return { type: 'quote', ...normalizeQuote(block.text) }
       case 'code':
         return codeNode(block.lang, block.code, platform)
       case 'image':
@@ -234,8 +281,11 @@ export const renderArticle = (
       case 'list':
         return renderPlainList(node, platform)
       case 'quote':
-        return node.lines
-          .map((line) => (platform === 'zsxq' ? `> ${line}` : `引用：${line}`))
+        return [
+          node.calloutLabel,
+          ...node.lines.map((line) => (platform === 'zsxq' ? `> ${line}` : `引用：${line}`)),
+        ]
+          .filter(Boolean)
           .join('\n')
       case 'code': {
         const indented = node.code
@@ -278,8 +328,11 @@ export const renderClipboardArticle = (
       case 'list':
         return renderPlainList(node, platform)
       case 'quote':
-        return node.lines
-          .map((line) => (platform === 'zsxq' ? line : `引用：${line}`))
+        return [
+          node.calloutLabel,
+          ...node.lines.map((line) => (platform === 'zsxq' ? line : `引用：${line}`)),
+        ]
+          .filter(Boolean)
           .join('\n')
       case 'code': {
         const indented = node.code
@@ -363,6 +416,22 @@ const renderWechatClipboardCode = (label: string, code: string) => {
   return `<section style="margin:24px 0;"><p style="margin:0 0 10px;line-height:1.8;font-weight:700;text-align:left;">${escapeHtml(label)}</p><section style="${boxStyle}"><p style="${paragraphStyle}">${editableCode}</p></section></section>`
 }
 
+const renderWechatClipboardQuote = (
+  node: Extract<RenderNode, { type: 'quote' }>,
+) => {
+  const label = node.calloutLabel
+    ? `<p style="margin:0 0 8px;color:#1f2937;font-size:16px;line-height:1.6;font-weight:700;">${escapeHtml(node.calloutLabel)}</p>`
+    : ''
+  const body = node.lines
+    .map(
+      (line, index) =>
+        `<p style="margin:0${index < node.lines.length - 1 ? ' 0 8px' : ''};color:#5b6472;font-size:15px;line-height:1.7;">${escapeHtml(line)}</p>`,
+    )
+    .join('')
+
+  return `<blockquote style="margin:18px 0;padding:12px 16px;border-left:4px solid #94a3b8;background:#f7f8fa;color:#5b6472;">${label}${body}</blockquote>`
+}
+
 export const renderClipboardHtml = (
   markdown: string,
   platform: Platform,
@@ -385,28 +454,37 @@ export const renderClipboardHtml = (
 
       switch (node.type) {
         case 'heading': {
-          const appearance = HEADING_APPEARANCE[node.level]
-          const typography = WECHAT_HEADING_TYPOGRAPHY[node.level]
+          const appearance = headingAppearanceForPlatform(platform, node.level)
+          const typography = platform === 'wechat'
+            ? WECHAT_HEADING_TYPOGRAPHY[node.level]
+            : HEADING_TYPOGRAPHY[node.level]
           const tag = `h${node.level}`
-          const typographyStyle = platform === 'wechat'
-            ? `font-size:${typography.fontSize};line-height:${typography.lineHeight};`
-            : ''
-          const headingHtml = `<${tag} style="color:${appearance.color};font-weight:${appearance.fontWeight};${typographyStyle}"><strong>${escapeHtml(node.text)}</strong></${tag}>`
+          const typographyStyle = `font-size:${typography.fontSize};line-height:${typography.lineHeight};`
+          const layoutStyle = platform === 'wechat' ? WECHAT_HEADING_LAYOUT[node.level] : ''
+          const headingHtml = `<${tag} style="color:${appearance.color};font-weight:${appearance.fontWeight};${typographyStyle}${layoutStyle}"><strong>${escapeHtml(node.text)}</strong></${tag}>`
           return nodes[nodeIndex + 1]?.type === 'heading'
             ? appendZsxqSpacer(headingHtml)
             : headingHtml
         }
         case 'paragraph': {
-          const paragraphStyle = platform === 'zsxq' ? 'margin:0;line-height:1.9;' : 'margin:0 0 16px;line-height:1.9;'
+          const paragraphStyle = platform === 'zsxq'
+            ? 'margin:0;line-height:1.75;'
+            : 'margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;'
           return appendZsxqSpacer(`<p style="${paragraphStyle}">${escapeHtml(node.text)}</p>`)
         }
         case 'list': {
           return renderListHtml(node.ordered, node.start, node.items)
         }
-        case 'quote':
+        case 'quote': {
+          if (platform === 'wechat') {
+            return renderWechatClipboardQuote(node)
+          }
+
+          const label = node.calloutLabel ? `<p><strong>${escapeHtml(node.calloutLabel)}</strong></p>` : ''
           return appendZsxqSpacer(
-            `<blockquote>${node.lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</blockquote>`,
+            `<blockquote>${label}${node.lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</blockquote>`,
           )
+        }
         case 'code':
           return platform === 'wechat'
             ? renderWechatClipboardCode(node.label, node.code)
@@ -416,11 +494,15 @@ export const renderClipboardHtml = (
         case 'image':
           return `<figure style="margin:24px 0;text-align:center;"><img src="${escapeHtml(node.src)}" alt="${escapeHtml(node.alt)}" style="display:block;max-width:100%;width:auto;height:auto;margin:0 auto;object-fit:contain;" /><figcaption style="margin-top:8px;color:#6b7280;font-size:13px;line-height:1.6;">${escapeHtml(node.alt)}</figcaption></figure>`
         case 'table':
-          if (platform === 'zsxq' && tableImageSources[tableIndex]) {
+          if (tableImageSources[tableIndex]) {
             const currentTableIndex = tableIndex
             const tableImageSource = tableImageSources[tableIndex]
             tableIndex += 1
-            return `<figure style="margin:0;text-align:center;"><img src="${escapeHtml(tableImageSource)}" alt="表格 ${currentTableIndex + 1}" style="display:block;max-width:100%;width:auto;height:auto;margin:0 auto;object-fit:contain;" /></figure>`
+            const figureStyle = platform === 'wechat' ? 'margin:18px 0;text-align:center;' : 'margin:0;text-align:center;'
+            const imageStyle = platform === 'wechat'
+              ? 'display:block;width:100%;max-width:100%;height:auto;margin:0 auto;border:1px solid #e5e7eb;border-radius:8px;object-fit:contain;'
+              : 'display:block;max-width:100%;width:auto;height:auto;margin:0 auto;object-fit:contain;'
+            return `<figure style="${figureStyle}"><img src="${escapeHtml(tableImageSource)}" alt="表格 ${currentTableIndex + 1}" style="${imageStyle}" /></figure>`
           }
 
           tableIndex += 1

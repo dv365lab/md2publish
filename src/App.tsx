@@ -53,13 +53,14 @@ function App() {
   const [immersiveTarget, setImmersiveTarget] = useState<'zsxq' | 'wechat' | null>(null)
   const [immersiveWidths, setImmersiveWidths] = useState({ zsxq: 1100, wechat: 1100 })
   const [copyNotice, setCopyNotice] = useState<string | null>(null)
+  const [wechatCopyNotice, setWechatCopyNotice] = useState<string | null>(null)
   const [tableCopyState, setTableCopyState] = useState<string | null>(null)
   const [tableCopyIndex, setTableCopyIndex] = useState(0)
   const [imageSources, setImageSources] = useState<ImageSourceMap>({
     'https://example.com/cover.png': sampleImage,
   })
   const [importNotice, setImportNotice] = useState<string | null>(null)
-  const [articleCopying, setArticleCopying] = useState(false)
+  const [copyingTarget, setCopyingTarget] = useState<Platform | null>(null)
 
   const result = useMemo(() => {
     const zsxq = renderArticle(markdown, 'zsxq', imageSources)
@@ -85,18 +86,22 @@ function App() {
 
   const handleCopy = async (target: Platform) => {
     const text = renderClipboardArticle(markdown, target, imageSources)
-
+    const tables = extractTablesFromMarkdown(markdown, target)
     const isZsxqRichCopy = target === 'zsxq'
+
+    setCopyingTarget(target)
     if (isZsxqRichCopy) {
-      setArticleCopying(true)
       setCopyNotice('正在生成高清表格图片，请稍候…')
+    } else {
+      setWechatCopyNotice(
+        tables.length > 0 ? '正在把表格生成高清图片，请稍候…' : '正在复制公众号富文本…',
+      )
     }
 
     try {
-      const tableImageSources = isZsxqRichCopy
-        ? await renderTablesAsDataUrls(extractTablesFromMarkdown(markdown, 'zsxq'))
-        : []
+      const tableImageSources = tables.length > 0 ? await renderTablesAsDataUrls(tables) : []
       const html = renderClipboardHtml(markdown, target, imageSources, tableImageSources)
+      let copiedAsPlainText = false
 
       if (canUseRichClipboard) {
         try {
@@ -116,6 +121,7 @@ function App() {
           }
 
           await copyPlainText(text)
+          copiedAsPlainText = true
         }
       } else {
         if (target === 'zsxq') {
@@ -124,6 +130,7 @@ function App() {
         }
 
         await copyPlainText(text)
+        copiedAsPlainText = true
       }
 
       if (target === 'zsxq') {
@@ -137,19 +144,22 @@ function App() {
       }
 
       clearCopiedStateLater('wechat-rich')
-      setCopyNotice(null)
-    } catch (error) {
-      if (!isZsxqRichCopy) {
-        throw error
-      }
-
-      setCopyNotice(
-        error instanceof Error ? `表格图片生成失败：${error.message}` : '表格图片生成失败，请重试。',
+      setWechatCopyNotice(
+        copiedAsPlainText
+          ? '当前浏览器未能写入富文本，已复制纯文本；建议使用最新版 Chrome。'
+          : tableImageSources.length > 0
+            ? `已复制公众号文章，${tableImageSources.length} 个表格已自动转为高清图片。`
+            : '已复制公众号富文本，请直接粘贴。',
       )
-    } finally {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '请重试。'
       if (isZsxqRichCopy) {
-        setArticleCopying(false)
+        setCopyNotice(`表格图片生成失败：${message}`)
+      } else {
+        setWechatCopyNotice(`公众号内容复制失败：${message}`)
       }
+    } finally {
+      setCopyingTarget(null)
     }
   }
 
@@ -288,10 +298,10 @@ function App() {
                 <button
                   type="button"
                   className="copy-button"
-                  disabled={articleCopying}
+                  disabled={copyingTarget !== null}
                   onClick={() => handleCopy('zsxq')}
                 >
-                  {articleCopying
+                  {copyingTarget === 'zsxq'
                     ? '正在生成…'
                     : copiedKey === 'zsxq-rich'
                       ? '已复制文章'
@@ -325,7 +335,7 @@ function App() {
             <div className="panel-header">
               <div>
                 <h2>微信公众号版</h2>
-                <p>层级更清晰，更适合长文阅读和正式发布。</p>
+                <p>使用公众号排版，复制时自动把表格转为高清图片。</p>
               </div>
               <div className="panel-actions">
                 <label className="immersive-width-control">
@@ -338,11 +348,21 @@ function App() {
                 >
                   整屏查看
                 </button>
-                <button type="button" className="copy-button" onClick={() => handleCopy('wechat')}>
-                  {copiedKey === 'wechat-rich' ? '已复制' : '复制'}
+                <button
+                  type="button"
+                  className="copy-button"
+                  disabled={copyingTarget !== null}
+                  onClick={() => handleCopy('wechat')}
+                >
+                  {copyingTarget === 'wechat'
+                    ? '正在复制…'
+                    : copiedKey === 'wechat-rich'
+                      ? '已复制'
+                      : '复制'}
                 </button>
               </div>
             </div>
+            {wechatCopyNotice ? <p className="copy-notice">{wechatCopyNotice}</p> : null}
             <div className="output-frame">
               <ArticlePreview
                 nodes={result.wechatNodes}
@@ -384,10 +404,10 @@ function App() {
                     <button
                       type="button"
                       className="copy-button"
-                      disabled={articleCopying}
+                      disabled={copyingTarget !== null}
                       onClick={() => handleCopy('zsxq')}
                     >
-                      {articleCopying
+                      {copyingTarget === 'zsxq'
                         ? '正在生成…'
                         : copiedKey === 'zsxq-rich'
                           ? '已复制文章'
@@ -409,9 +429,14 @@ function App() {
                   <button
                     type="button"
                     className="copy-button"
+                    disabled={copyingTarget !== null}
                     onClick={() => handleCopy('wechat')}
                   >
-                    {copiedKey === 'wechat-rich' ? '已复制' : '复制'}
+                    {copyingTarget === 'wechat'
+                      ? '正在复制…'
+                      : copiedKey === 'wechat-rich'
+                        ? '已复制'
+                        : '复制'}
                   </button>
                 )}
                 <button type="button" className="preview-button" onClick={closeImmersivePreview}>

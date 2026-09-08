@@ -110,6 +110,33 @@ describe('App immersive preview', () => {
     expect(Object.keys(payload.items)).toEqual(['text/html', 'text/plain'])
   })
 
+  it('copies wechat tables as inline images while keeping plain text fallback', async () => {
+    render(<App />)
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: {
+        value: `表格之前
+
+| 字段 | 内容 |
+| --- | --- |
+| 平台 | 微信公众号 |
+
+表格之后`,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+    const payload = (navigator.clipboard.write as ReturnType<typeof vi.fn>).mock.calls[0][0][0] as ClipboardItemMock
+    const html = await readBlobText(payload.items['text/html'])
+    const text = await readBlobText(payload.items['text/plain'])
+
+    expect(html).not.toContain('<table')
+    expect(html).toContain('src="data:image/png;base64,dGFibGUt1"')
+    expect(text).toContain('字段 | 内容')
+  })
+
   it('does not silently replace a failed zsxq rich copy with compatibility text', async () => {
     ;(navigator.clipboard.write as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('clipboard rejected'),
