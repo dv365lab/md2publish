@@ -390,19 +390,28 @@ const renderListHtml = (
   ordered: boolean,
   start: number,
   items: ListItemBlock[],
+  platform: Platform,
+  depth = 0,
 ): string => {
   const tag = ordered ? 'ol' : 'ul'
   const startAttribute = ordered && start !== 1 ? ` start="${start}"` : ''
+  const listStyle = depth === 0
+    ? platform === 'wechat'
+      ? 'margin:0 0 14px;padding-left:1.5em;color:#374151;font-size:16px;line-height:1.75;text-align:left;'
+      : 'margin:0;padding-left:1.5em;line-height:1.75;'
+    : 'margin:8px 0 0;padding-left:1.5em;line-height:1.75;'
+  const listStyleAttribute = ` style="${listStyle}"`
+  const itemStyleAttribute = ' style="margin:0;padding:0;line-height:1.75;"'
   const listItems = items
     .map(
       (item) =>
-        `<li>${renderInlineHtml(item.content)}${item.children
-          .map((child) => renderListHtml(child.ordered, child.start, child.items))
+        `<li${itemStyleAttribute}>${renderInlineHtml(item.content)}${item.children
+          .map((child) => renderListHtml(child.ordered, child.start, child.items, platform, depth + 1))
           .join('')}</li>`,
     )
     .join('')
 
-  return `<${tag}${startAttribute}>${listItems}</${tag}>`
+  return `<${tag}${startAttribute}${listStyleAttribute}>${listItems}</${tag}>`
 }
 
 const wechatCodeFontFamily =
@@ -473,7 +482,9 @@ export const renderClipboardHtml = (
           return appendZsxqSpacer(`<p style="${paragraphStyle}">${escapeHtml(node.text)}</p>`)
         }
         case 'list': {
-          return renderListHtml(node.ordered, node.start, node.items)
+          return appendZsxqSpacer(
+            renderListHtml(node.ordered, node.start, node.items, platform),
+          )
         }
         case 'quote': {
           if (platform === 'wechat') {

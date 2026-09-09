@@ -151,7 +151,7 @@ console.log('hello')
 
       expect(result.match(/<ul/g)).toHaveLength(4)
       expect(result).toContain(
-        '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a><ul>',
+        '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a><ul',
       )
       expect(result).toContain(
         '<a href="#1-什么是-ace">1. 什么是 ACE？</a>',
@@ -207,6 +207,34 @@ console.log('hello')
         '<p style="margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;">第二段。</p>',
     )
     expect(zsxqHtml).toContain('<p style="margin:0;line-height:1.75;">第一段。</p>')
+  })
+
+  it('uses explicit, balanced spacing around wechat lists', () => {
+    const html = renderClipboardHtml(
+      '列表前的正文。\n\n- 第一项\n- 第二项\n\n列表后的正文。',
+      'wechat',
+    )
+
+    expect(html).toContain(
+      '<ul style="margin:0 0 14px;padding-left:1.5em;color:#374151;font-size:16px;line-height:1.75;text-align:left;">',
+    )
+    expect(html.match(/<li style="margin:0;padding:0;line-height:1.75;">/g)).toHaveLength(2)
+    expect(html).toContain('</p><ul style="margin:0 0 14px;')
+    expect(html).toContain('</ul><p style="margin:0 0 14px;')
+  })
+
+  it('keeps balanced structural spacing around zsxq lists when inline styles are removed', () => {
+    const html = renderClipboardHtml(
+      '列表前的正文。\n\n- 第一项\n- 第二项\n\n列表后的正文。',
+      'zsxq',
+    )
+    const styleStripped = html.replace(/ style="[^"]*"/g, '')
+
+    expect(html).toContain('<ul style="margin:0;padding-left:1.5em;line-height:1.75;">')
+    expect(styleStripped).toBe(
+      '<p>列表前的正文。</p><p>&nbsp;</p><ul><li>第一项</li><li>第二项</li></ul>' +
+        '<p>&nbsp;</p><p>列表后的正文。</p>',
+    )
   })
 
   it('copies wechat code blocks as one editable box with compact line breaks', () => {
