@@ -151,7 +151,9 @@ console.log('hello')
 
       expect(result.match(/<ul/g)).toHaveLength(4)
       expect(result).toContain(
-        '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a><ul',
+        platform === 'zsxq'
+          ? '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a></span><ul'
+          : '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a><ul',
       )
       expect(result).toContain(
         '<a href="#1-什么是-ace">1. 什么是 ACE？</a>',
@@ -163,20 +165,39 @@ console.log('hello')
   it('keeps colored bold headings for zsxq', () => {
     const result = renderClipboardHtml('# 一级标题\n\n## 二级标题\n\n### 三级标题', 'zsxq')
 
-    expect(result).toContain('<h1 style="color:#1d4ed8;font-weight:800;')
-    expect(result).toContain('color:#7c3aed;font-weight:700;')
-    expect(result).toContain('color:#0f766e;font-weight:700;')
-    expect(result.match(/<strong>/g)).toHaveLength(3)
+    expect(result).toContain('color:#1d4ed8;font-size:18px;font-weight:800;')
+    expect(result).toContain('color:#7c3aed;font-size:17px;font-weight:700;')
+    expect(result).toContain('color:#0f766e;font-size:15px;font-weight:700;')
+    expect(result.match(/<strong\b/g)).toHaveLength(3)
   })
 
-  it('copies zsxq headings bold and larger than the 16px body text', () => {
-    const html = renderClipboardHtml('# 一级标题\n\n## 二级标题\n\n### 三级标题', 'zsxq')
+  it('uses neutral zsxq heading blocks that do not trigger Quill spacer paragraphs', () => {
+    const html = renderClipboardHtml('## 二级标题\n\n正文。\n\n### 三级标题', 'zsxq')
 
-    expect(html).toContain('font-size:32px;line-height:1.35;')
-    expect(html).toContain('font-size:24px;line-height:1.5;')
-    expect(html).toContain('font-size:20px;line-height:1.6;')
+    expect(html).not.toMatch(/<h[1-3]\b/u)
+    expect(html).toContain(
+      '<p class="ql-line-height-2" style="margin:0 0 18px;line-height:2;"><strong class="ql-size-17px"',
+    )
+    expect(html).toContain(
+      '<p class="ql-line-height-1_75" style="margin:0;line-height:1.75;"><strong class="ql-size-15px"',
+    )
+  })
+
+  it('keeps every zsxq heading level larger than the body with graded spacing', () => {
+    const html = renderClipboardHtml(
+      '# 一级标题\n\n正文一。\n\n## 二级标题\n\n正文二。\n\n### 三级标题\n\n正文三。',
+      'zsxq',
+    )
+
+    expect(html.match(/class="ql-size-18px"/g)).toHaveLength(1)
+    expect(html.match(/class="ql-size-17px"/g)).toHaveLength(1)
+    expect(html.match(/class="ql-size-15px"/g)).toHaveLength(1)
+    expect(html.match(/class="ql-size-14px"/g)).toHaveLength(3)
+    expect(html).toContain('class="ql-line-height-2_5"')
+    expect(html).toContain('class="ql-line-height-2"')
+    expect(html).toContain('class="ql-line-height-1_75"')
     expect(html.match(/font-weight:(?:700|800)/g)).toHaveLength(3)
-    expect(html.match(/<strong>/g)).toHaveLength(3)
+    expect(html.match(/<strong\b/g)).toHaveLength(3)
   })
 
   it('copies wechat headings with a compact neutral hierarchy', () => {
@@ -189,13 +210,19 @@ console.log('hello')
     expect(html.match(/<strong>/g)).toHaveLength(3)
   })
 
-  it('keeps structural spacing between adjacent zsxq headings after inline styles are removed', () => {
+  it('uses compact explicit spacing between adjacent zsxq headings', () => {
     const markdown = '## 二、开始之前，需要准备什么\n\n### 1. 创建 DeepSeek API Key'
-    const zsxqHtml = renderClipboardHtml(markdown, 'zsxq').replace(/ style="[^"]*"/g, '')
-    const wechatHtml = renderClipboardHtml(markdown, 'wechat').replace(/ style="[^"]*"/g, '')
+    const zsxqHtml = renderClipboardHtml(markdown, 'zsxq')
+    const wechatHtml = renderClipboardHtml(markdown, 'wechat')
 
-    expect(zsxqHtml).toContain('</h2><p>&nbsp;</p><h3>')
-    expect(wechatHtml).toContain('</h2><h3>')
+    expect(zsxqHtml).not.toContain('&nbsp;')
+    expect(zsxqHtml).toContain(
+      '<p class="ql-line-height-2" style="margin:0 0 18px;line-height:2;"><strong class="ql-size-17px"',
+    )
+    expect(zsxqHtml).toContain(
+      '<p class="ql-line-height-1_75" style="margin:0;line-height:1.75;"><strong class="ql-size-15px"',
+    )
+    expect(wechatHtml.replace(/ style="[^"]*"/g, '')).toContain('</h2><h3>')
   })
 
   it('uses balanced body line spacing in copied html', () => {
@@ -206,7 +233,35 @@ console.log('hello')
       '<p style="margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;">第一段。</p>' +
         '<p style="margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;">第二段。</p>',
     )
-    expect(zsxqHtml).toContain('<p style="margin:0;line-height:1.75;">第一段。</p>')
+    expect(zsxqHtml).toBe(
+      '<p class="ql-line-height-1_6" style="margin:0 0 18px;line-height:1.6;"><span class="ql-size-14px" style="font-size:14px;">第一段。</span></p>' +
+        '<p class="ql-line-height-1_6" style="margin:0;line-height:1.6;"><span class="ql-size-14px" style="font-size:14px;">第二段。</span></p>',
+    )
+  })
+
+  it('copies zsxq blocks with preview-like spacing instead of empty spacer paragraphs', () => {
+    const html = renderClipboardHtml(
+      `波形轨道为空，不是设计或仿真本身出错。
+
+> 关键认知：波形里没有值，而是对象没有被记录下来。
+
+## 根因分类与解决方案
+
+可能原因可归纳为四大类。
+
+### 原因 1：信号缺少读访问权限`,
+      'zsxq',
+    )
+
+    expect(html).not.toContain('&nbsp;')
+    expect(html).toContain(
+      '<p class="ql-line-height-1_6" style="margin:0 0 18px;line-height:1.6;"><span class="ql-size-14px" style="font-size:14px;">波形轨道为空，不是设计或仿真本身出错。</span></p>',
+    )
+    expect(html).toContain(
+      '<p class="ql-line-height-1_6" style="margin:0 0 18px;line-height:1.6;"><span class="ql-size-14px" style="color:#475569;font-size:14px;"><strong style="color:#94a3b8;">▍</strong>',
+    )
+    expect(html).not.toContain('<blockquote')
+    expect(html).not.toMatch(/<h[1-3]\b/u)
   })
 
   it('uses explicit, balanced spacing around wechat lists', () => {
@@ -223,18 +278,21 @@ console.log('hello')
     expect(html).toContain('</ul><p style="margin:0 0 14px;')
   })
 
-  it('keeps balanced structural spacing around zsxq lists when inline styles are removed', () => {
+  it('uses balanced explicit spacing around zsxq lists without empty paragraphs', () => {
     const html = renderClipboardHtml(
       '列表前的正文。\n\n- 第一项\n- 第二项\n\n列表后的正文。',
       'zsxq',
     )
     const styleStripped = html.replace(/ style="[^"]*"/g, '')
 
-    expect(html).toContain('<ul style="margin:0;padding-left:1.5em;line-height:1.75;">')
+    expect(html).toContain('<ul style="margin:0 0 18px;padding-left:1.5em;line-height:1.75;">')
     expect(styleStripped).toBe(
-      '<p>列表前的正文。</p><p>&nbsp;</p><ul><li>第一项</li><li>第二项</li></ul>' +
-        '<p>&nbsp;</p><p>列表后的正文。</p>',
+      '<p class="ql-line-height-1_6"><span class="ql-size-14px">列表前的正文。</span></p>' +
+        '<ul><li><span class="ql-size-14px">第一项</span></li>' +
+        '<li><span class="ql-size-14px">第二项</span></li></ul>' +
+        '<p class="ql-line-height-1_6"><span class="ql-size-14px">列表后的正文。</span></p>',
     )
+    expect(html).not.toContain('&nbsp;')
   })
 
   it('copies wechat code blocks as one editable box with compact line breaks', () => {
@@ -257,6 +315,8 @@ xrun -64bit -uvm -f filelist.f \\
     expect(wechatHtml).not.toContain('<pre')
     expect(wechatHtml).not.toContain('<code')
     expect(zsxqHtml).not.toContain('<section style="margin:24px 0;">')
+    expect(zsxqHtml).not.toContain('<div>')
+    expect(zsxqHtml).toContain('</p><pre style="margin:0;')
   })
 
   it('formats markdown IMPORTANT quotes as clean wechat callouts', () => {
@@ -272,11 +332,11 @@ xrun -64bit -uvm -f filelist.f \\
     expect(html).toContain('第二行说明。')
   })
 
-  it('keeps structural paragraph spacing for zsxq after inline styles are removed', () => {
+  it('does not add empty paragraphs between copied zsxq paragraphs', () => {
     const result = renderClipboardHtml('第一段。\n\n第二段。', 'zsxq')
-    const styleStripped = result.replace(/ style="[^"]*"/g, '')
 
-    expect(styleStripped).toBe('<p>第一段。</p><p>&nbsp;</p><p>第二段。</p>')
+    expect(result).not.toContain('&nbsp;')
+    expect(result).toContain('margin:0 0 18px;')
   })
 
   it('keeps standalone and inline markdown images as real clipboard images', () => {

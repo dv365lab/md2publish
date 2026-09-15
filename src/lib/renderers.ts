@@ -21,12 +21,6 @@ export const HEADING_APPEARANCE = {
   3: { color: '#0f766e', fontWeight: 700 },
 } as const satisfies Record<HeadingLevel, { color: string; fontWeight: number }>
 
-const HEADING_TYPOGRAPHY = {
-  1: { fontSize: '32px', lineHeight: 1.35 },
-  2: { fontSize: '24px', lineHeight: 1.5 },
-  3: { fontSize: '20px', lineHeight: 1.6 },
-} as const satisfies Record<HeadingLevel, { fontSize: string; lineHeight: number }>
-
 const WECHAT_HEADING_APPEARANCE = {
   1: { color: '#1f2937', fontWeight: 700 },
   2: { color: '#1f2937', fontWeight: 700 },
@@ -38,6 +32,14 @@ const WECHAT_HEADING_TYPOGRAPHY = {
   2: { fontSize: '22px', lineHeight: 1.45 },
   3: { fontSize: '20px', lineHeight: 1.55 },
 } as const satisfies Record<HeadingLevel, { fontSize: string; lineHeight: number }>
+
+const ZSXQ_CLIPBOARD_HEADING_TYPOGRAPHY = {
+  1: { fontSize: '18px', lineHeight: 2.5 },
+  2: { fontSize: '17px', lineHeight: 2 },
+  3: { fontSize: '15px', lineHeight: 1.75 },
+} as const satisfies Record<HeadingLevel, { fontSize: string; lineHeight: number }>
+
+const ZSXQ_CLIPBOARD_BODY_FONT_SIZE = '14px'
 
 const WECHAT_HEADING_LAYOUT = {
   1: 'margin:0 0 18px;',
@@ -392,23 +394,28 @@ const renderListHtml = (
   items: ListItemBlock[],
   platform: Platform,
   depth = 0,
+  topLevelMargin = '0 0 18px',
 ): string => {
   const tag = ordered ? 'ol' : 'ul'
   const startAttribute = ordered && start !== 1 ? ` start="${start}"` : ''
   const listStyle = depth === 0
     ? platform === 'wechat'
       ? 'margin:0 0 14px;padding-left:1.5em;color:#374151;font-size:16px;line-height:1.75;text-align:left;'
-      : 'margin:0;padding-left:1.5em;line-height:1.75;'
+      : `margin:${topLevelMargin};padding-left:1.5em;line-height:1.75;`
     : 'margin:8px 0 0;padding-left:1.5em;line-height:1.75;'
   const listStyleAttribute = ` style="${listStyle}"`
   const itemStyleAttribute = ' style="margin:0;padding:0;line-height:1.75;"'
   const listItems = items
-    .map(
-      (item) =>
-        `<li${itemStyleAttribute}>${renderInlineHtml(item.content)}${item.children
+    .map((item) => {
+      const inlineHtml = renderInlineHtml(item.content)
+      const contentHtml = platform === 'zsxq'
+        ? `<span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${inlineHtml}</span>`
+        : inlineHtml
+
+      return `<li${itemStyleAttribute}>${contentHtml}${item.children
           .map((child) => renderListHtml(child.ordered, child.start, child.items, platform, depth + 1))
-          .join('')}</li>`,
-    )
+          .join('')}</li>`
+    })
     .join('')
 
   return `<${tag}${startAttribute}${listStyleAttribute}>${listItems}</${tag}>`
@@ -441,6 +448,47 @@ const renderWechatClipboardQuote = (
   return `<blockquote style="margin:18px 0;padding:12px 16px;border-left:4px solid #94a3b8;background:#f7f8fa;color:#5b6472;">${label}${body}</blockquote>`
 }
 
+const renderZsxqClipboardHeading = (
+  node: Extract<RenderNode, { type: 'heading' }>,
+  blockMargin: string,
+) => {
+  const appearance = headingAppearanceForPlatform('zsxq', node.level)
+  const typography = ZSXQ_CLIPBOARD_HEADING_TYPOGRAPHY[node.level]
+  const lineHeightClass = String(typography.lineHeight).replace('.', '_')
+
+  return `<p class="ql-line-height-${lineHeightClass}" style="margin:${blockMargin};line-height:${typography.lineHeight};"><strong class="ql-size-${typography.fontSize}" style="color:${appearance.color};font-size:${typography.fontSize};font-weight:${appearance.fontWeight};">${escapeHtml(node.text)}</strong></p>`
+}
+
+const renderZsxqClipboardQuote = (
+  node: Extract<RenderNode, { type: 'quote' }>,
+  blockMargin: string,
+) => {
+  return node.lines
+    .map(
+      (line, index) => {
+        const prefix = index === 0
+          ? `<strong style="color:#94a3b8;">▍</strong> ${node.calloutLabel ? `<strong style="color:#475569;">${escapeHtml(node.calloutLabel)}：</strong>` : ''}`
+          : ''
+        const margin = index < node.lines.length - 1 ? '0' : blockMargin
+
+        return `<p class="ql-line-height-1_6" style="margin:${margin};line-height:1.6;"><span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="color:#475569;font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${prefix}${escapeHtml(line)}</span></p>`
+      },
+    )
+    .join('')
+}
+
+const renderZsxqClipboardCode = (
+  label: string,
+  code: string,
+  trailingColon: boolean,
+  blockMargin: string,
+) => {
+  const labelText = `${label}${trailingColon ? '：' : ''}`
+  const preStyle = 'padding:18px 20px;box-sizing:border-box;max-width:100%;overflow-x:auto;border-radius:14px;background-color:#eff3f8;font-size:14px;line-height:1.8;white-space:pre-wrap;word-break:break-word;'
+
+  return `<p class="ql-line-height-1_6" style="margin:0 0 10px;line-height:1.6;"><strong class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${escapeHtml(labelText)}</strong></p><pre style="margin:${blockMargin};${preStyle}">${escapeHtml(code)}</pre>`
+}
+
 export const renderClipboardHtml = (
   markdown: string,
   platform: Platform,
@@ -450,40 +498,38 @@ export const renderClipboardHtml = (
   const nodes = buildRenderNodes(markdown, platform, imageSources)
   let tableIndex = 0
 
-  const zsxqParagraphSpacer = '<p style="margin:0;line-height:1;">&nbsp;</p>'
-
   return nodes
     .map((node, nodeIndex) => {
-      const appendZsxqSpacer = (html: string) =>
-        platform === 'zsxq' &&
-        nodeIndex < nodes.length - 1 &&
-        nodes[nodeIndex + 1]?.type !== 'table'
-          ? `${html}${zsxqParagraphSpacer}`
-          : html
+      const zsxqBlockMargin = nodeIndex < nodes.length - 1 ? '0 0 18px' : '0'
 
       switch (node.type) {
         case 'heading': {
+          if (platform === 'zsxq') {
+            return renderZsxqClipboardHeading(node, zsxqBlockMargin)
+          }
+
           const appearance = headingAppearanceForPlatform(platform, node.level)
-          const typography = platform === 'wechat'
-            ? WECHAT_HEADING_TYPOGRAPHY[node.level]
-            : HEADING_TYPOGRAPHY[node.level]
+          const typography = WECHAT_HEADING_TYPOGRAPHY[node.level]
           const tag = `h${node.level}`
           const typographyStyle = `font-size:${typography.fontSize};line-height:${typography.lineHeight};`
-          const layoutStyle = platform === 'wechat' ? WECHAT_HEADING_LAYOUT[node.level] : ''
-          const headingHtml = `<${tag} style="color:${appearance.color};font-weight:${appearance.fontWeight};${typographyStyle}${layoutStyle}"><strong>${escapeHtml(node.text)}</strong></${tag}>`
-          return nodes[nodeIndex + 1]?.type === 'heading'
-            ? appendZsxqSpacer(headingHtml)
-            : headingHtml
+          const layoutStyle = WECHAT_HEADING_LAYOUT[node.level]
+          return `<${tag} style="color:${appearance.color};font-weight:${appearance.fontWeight};${typographyStyle}${layoutStyle}"><strong>${escapeHtml(node.text)}</strong></${tag}>`
         }
         case 'paragraph': {
-          const paragraphStyle = platform === 'zsxq'
-            ? 'margin:0;line-height:1.75;'
-            : 'margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;'
-          return appendZsxqSpacer(`<p style="${paragraphStyle}">${escapeHtml(node.text)}</p>`)
+          if (platform === 'zsxq') {
+            return `<p class="ql-line-height-1_6" style="margin:${zsxqBlockMargin};line-height:1.6;"><span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${escapeHtml(node.text)}</span></p>`
+          }
+
+          return `<p style="margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;">${escapeHtml(node.text)}</p>`
         }
         case 'list': {
-          return appendZsxqSpacer(
-            renderListHtml(node.ordered, node.start, node.items, platform),
+          return renderListHtml(
+            node.ordered,
+            node.start,
+            node.items,
+            platform,
+            0,
+            zsxqBlockMargin,
           )
         }
         case 'quote': {
@@ -491,15 +537,17 @@ export const renderClipboardHtml = (
             return renderWechatClipboardQuote(node)
           }
 
-          const label = node.calloutLabel ? `<p><strong>${escapeHtml(node.calloutLabel)}</strong></p>` : ''
-          return appendZsxqSpacer(
-            `<blockquote>${label}${node.lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</blockquote>`,
-          )
+          return renderZsxqClipboardQuote(node, zsxqBlockMargin)
         }
         case 'code':
           return platform === 'wechat'
             ? renderWechatClipboardCode(node.label, node.code)
-            : `<div><p>${escapeHtml(node.label)}${node.trailingColon ? '：' : ''}</p><pre>${escapeHtml(node.code)}</pre></div>`
+            : renderZsxqClipboardCode(
+                node.label,
+                node.code,
+                node.trailingColon,
+                zsxqBlockMargin,
+              )
         case 'thematicBreak':
           return `<p>${escapeHtml(node.marker)}</p>`
         case 'image':
