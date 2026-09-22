@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { InlineContent, ListBlock } from '../lib/markdown'
 import { headingAppearanceForPlatform, type Platform, type RenderNode } from '../lib/renderers'
+import { getColumnWidth, isIdColumn, type TableColumnWidths } from '../lib/tableColumns'
 
 type ArticlePreviewProps = {
   nodes: RenderNode[]
@@ -8,6 +9,8 @@ type ArticlePreviewProps = {
   className?: string
   style?: CSSProperties
   testId?: string
+  tableColumnWidths?: TableColumnWidths
+  onTableColumnWidthChange?: (tableIndex: number, columnIndex: number, width?: number) => void
 }
 
 const renderInlineContent = (content: InlineContent[]) =>
@@ -38,7 +41,17 @@ const renderList = (list: ListBlock, key: string) => {
   )
 }
 
-export function ArticlePreview({ nodes, platform, className, style, testId }: ArticlePreviewProps) {
+export function ArticlePreview({
+  nodes,
+  platform,
+  className,
+  style,
+  testId,
+  tableColumnWidths,
+  onTableColumnWidthChange,
+}: ArticlePreviewProps) {
+  let tableIndex = 0
+
   return (
     <div
       className={[className, `article-output-${platform}`].filter(Boolean).join(' ')}
@@ -111,29 +124,74 @@ export function ArticlePreview({ nodes, platform, className, style, testId }: Ar
                 <figcaption>{node.alt}</figcaption>
               </figure>
             )
-          case 'table':
+          case 'table': {
+            const currentTableIndex = tableIndex++
+            const widths = tableColumnWidths?.[currentTableIndex]
+            const columnStyle = (columnIndex: number): CSSProperties => {
+              const header = node.header[columnIndex] ?? ''
+              const width = getColumnWidth(header, columnIndex, widths)
+
+              return {
+                ...(width === undefined ? {} : { width, minWidth: width }),
+                ...(isIdColumn(header) ? { whiteSpace: 'nowrap', wordBreak: 'normal' } : {}),
+              }
+            }
+
             return (
-              <div key={key} className="article-block article-table-wrap">
-                <table className="article-table">
-                  <thead>
-                    <tr>
-                      {node.header.map((cell, cellIndex) => (
-                        <th key={`${key}-head-${cellIndex}`}>{cell}</th>
+              <div key={key} className="article-block">
+                {onTableColumnWidthChange ? (
+                  <details className="article-table-width-controls">
+                    <summary>调整列宽</summary>
+                    <div className="article-table-width-fields">
+                      {node.header.map((header, columnIndex) => (
+                        <label key={`${key}-width-${columnIndex}`}>
+                          <span>{header}</span>
+                          <input
+                            type="number"
+                            min="80"
+                            max="800"
+                            step="10"
+                            aria-label={`${header} 列宽 (px)`}
+                            placeholder="自动"
+                            value={widths?.[columnIndex] ?? (isIdColumn(header) ? 136 : '')}
+                            onChange={(event) => {
+                              const value = Number(event.currentTarget.value)
+                              onTableColumnWidthChange(
+                                currentTableIndex,
+                                columnIndex,
+                                value > 0 ? value : undefined,
+                              )
+                            }}
+                          />
+                          <span>px</span>
+                        </label>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {node.rows.map((row, rowIndex) => (
-                      <tr key={`${key}-row-${rowIndex}`}>
-                        {row.map((cell, cellIndex) => (
-                          <td key={`${key}-cell-${rowIndex}-${cellIndex}`}>{cell}</td>
+                    </div>
+                  </details>
+                ) : null}
+                <div className="article-table-wrap">
+                  <table className="article-table">
+                    <thead>
+                      <tr>
+                        {node.header.map((cell, cellIndex) => (
+                          <th key={`${key}-head-${cellIndex}`} style={columnStyle(cellIndex)}>{cell}</th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {node.rows.map((row, rowIndex) => (
+                        <tr key={`${key}-row-${rowIndex}`}>
+                          {row.map((cell, cellIndex) => (
+                            <td key={`${key}-cell-${rowIndex}-${cellIndex}`} style={columnStyle(cellIndex)}>{cell}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )
+          }
           default:
             return null
         }

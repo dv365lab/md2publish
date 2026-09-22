@@ -16,6 +16,7 @@ import {
   renderTablesAsDataUrls,
 } from './lib/tableImage'
 import { loadMarkdownBundle } from './lib/markdownFiles'
+import type { TableColumnWidths } from './lib/tableColumns'
 
 const defaultMarkdown = `# 用 Markdown 一次生成两版文章
 
@@ -56,6 +57,7 @@ function App() {
   const [wechatCopyNotice, setWechatCopyNotice] = useState<string | null>(null)
   const [tableCopyState, setTableCopyState] = useState<string | null>(null)
   const [tableCopyIndex, setTableCopyIndex] = useState(0)
+  const [tableColumnWidths, setTableColumnWidths] = useState<TableColumnWidths>({})
   const [imageSources, setImageSources] = useState<ImageSourceMap>({
     'https://example.com/cover.png': sampleImage,
   })
@@ -99,7 +101,9 @@ function App() {
     }
 
     try {
-      const tableImageSources = tables.length > 0 ? await renderTablesAsDataUrls(tables) : []
+      const tableImageSources = tables.length > 0
+        ? await renderTablesAsDataUrls(tables, tableColumnWidths)
+        : []
       const html = renderClipboardHtml(markdown, target, imageSources, tableImageSources)
       let copiedAsPlainText = false
 
@@ -175,7 +179,7 @@ function App() {
     const table = tables[currentIndex]
 
     try {
-      await copyTableAsImage(table)
+      await copyTableAsImage(table, tableColumnWidths[currentIndex])
       setTableCopyState('success')
       setCopyNotice(
         tables.length > 1
@@ -197,6 +201,23 @@ function App() {
 
   const resetTableCopyIndex = () => {
     setTableCopyIndex(0)
+    setTableColumnWidths({})
+  }
+
+  const handleTableColumnWidthChange = (
+    tableIndex: number,
+    columnIndex: number,
+    width?: number,
+  ) => {
+    setTableColumnWidths((current) => {
+      const widths = { ...current[tableIndex] }
+      if (width === undefined) {
+        delete widths[columnIndex]
+      } else {
+        widths[columnIndex] = width
+      }
+      return { ...current, [tableIndex]: widths }
+    })
   }
 
   const closeImmersivePreview = () => {
@@ -327,6 +348,8 @@ function App() {
                 platform="zsxq"
                 className="article-output"
                 testId="zsxq-output"
+                tableColumnWidths={tableColumnWidths}
+                onTableColumnWidthChange={handleTableColumnWidthChange}
               />
             </div>
           </article>
@@ -369,6 +392,8 @@ function App() {
                 platform="wechat"
                 className="article-output"
                 testId="wechat-output"
+                tableColumnWidths={tableColumnWidths}
+                onTableColumnWidthChange={handleTableColumnWidthChange}
               />
             </div>
           </article>
@@ -451,6 +476,8 @@ function App() {
                 className="article-output article-output-immersive"
                 testId="immersive-output"
                 style={{ maxWidth: `${immersiveWidths[immersiveTarget]}px` }}
+                tableColumnWidths={tableColumnWidths}
+                onTableColumnWidthChange={handleTableColumnWidthChange}
               />
             </div>
           </div>

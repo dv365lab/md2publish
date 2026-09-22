@@ -1,4 +1,5 @@
 import { buildRenderNodes, type RenderNode } from './renderers'
+import { getColumnStyle, type ColumnWidths, type TableColumnWidths } from './tableColumns'
 
 export type TablePayload = {
   header: string[]
@@ -20,15 +21,14 @@ const escapeHtml = (value: string) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 
-export const buildTableHtml = (table: TablePayload) => `
-<div style="padding:0 24px;background:#ffffff;font-family:'PingFang SC','Microsoft YaHei',sans-serif;">
-  <table style="border-collapse:collapse;width:100%;background:#ffffff;border:1px solid #d1d5db;">
+const renderTableMarkup = (table: TablePayload, columnWidths?: ColumnWidths) => `
+<table style="border-collapse:collapse;width:100%;background:#ffffff;border:1px solid #d1d5db;">
     <thead>
       <tr>
         ${table.header
           .map(
-            (cell) =>
-              `<th style="padding:14px 16px;border:1px solid #d1d5db;background:#eef4ff;color:#0f172a;font-weight:700;text-align:left;font-size:15px;line-height:1.8;">${escapeHtml(cell)}</th>`,
+            (cell, columnIndex) =>
+              `<th style="padding:14px 16px;border:1px solid #d1d5db;background:#eef4ff;color:#0f172a;font-weight:700;text-align:left;font-size:15px;line-height:1.8;${getColumnStyle(cell, columnIndex, columnWidths)}">${escapeHtml(cell)}</th>`,
           )
           .join('')}
       </tr>
@@ -39,56 +39,36 @@ export const buildTableHtml = (table: TablePayload) => `
           (row) =>
             `<tr>${row
               .map(
-                (cell) =>
-                  `<td style="padding:14px 16px;border:1px solid #d1d5db;color:#1f2937;text-align:left;font-size:15px;line-height:1.8;">${escapeHtml(cell)}</td>`,
+                (cell, columnIndex) =>
+                  `<td style="padding:14px 16px;border:1px solid #d1d5db;color:#1f2937;text-align:left;font-size:15px;line-height:1.8;${getColumnStyle(table.header[columnIndex] ?? '', columnIndex, columnWidths)}">${escapeHtml(cell)}</td>`,
               )
               .join('')}</tr>`,
         )
         .join('')}
     </tbody>
-  </table>
+  </table>`.trim()
+
+export const buildTableHtml = (table: TablePayload, columnWidths?: ColumnWidths) => `
+<div style="padding:0 24px;background:#ffffff;font-family:'PingFang SC','Microsoft YaHei',sans-serif;">
+  ${renderTableMarkup(table, columnWidths)}
 </div>`.trim()
 
-export const buildAllTablesHtml = (tables: TablePayload[]) => `
+export const buildAllTablesHtml = (tables: TablePayload[], columnWidths?: TableColumnWidths) => `
 <div style="padding:24px;background:#ffffff;font-family:'PingFang SC','Microsoft YaHei',sans-serif;">
   ${tables
     .map(
       (table, index) => `
   <div style="${index > 0 ? 'margin-top:24px;' : ''}">
     ${tables.length > 1 ? `<div style="margin-bottom:8px;color:#6b7280;font-size:13px;font-weight:600;">表格 ${index + 1}</div>` : ''}
-    <table style="border-collapse:collapse;width:100%;background:#ffffff;border:1px solid #d1d5db;">
-      <thead>
-        <tr>
-          ${table.header
-            .map(
-              (cell) =>
-                `<th style="padding:14px 16px;border:1px solid #d1d5db;background:#eef4ff;color:#0f172a;font-weight:700;text-align:left;font-size:15px;line-height:1.8;">${escapeHtml(cell)}</th>`,
-            )
-            .join('')}
-        </tr>
-      </thead>
-      <tbody>
-        ${table.rows
-          .map(
-            (row) =>
-              `<tr>${row
-                .map(
-                  (cell) =>
-                    `<td style="padding:14px 16px;border:1px solid #d1d5db;color:#1f2937;text-align:left;font-size:15px;line-height:1.8;">${escapeHtml(cell)}</td>`,
-                )
-                .join('')}</tr>`,
-          )
-          .join('')}
-      </tbody>
-    </table>
+    ${renderTableMarkup(table, columnWidths?.[index])}
   </div>`,
     )
     .join('')}
 </div>`.trim()
 
-const renderTableCanvas = async (table: TablePayload) => {
+const renderTableCanvas = async (table: TablePayload, columnWidths?: ColumnWidths) => {
   const holder = document.createElement('div')
-  holder.innerHTML = buildTableHtml(table)
+  holder.innerHTML = buildTableHtml(table, columnWidths)
   holder.style.position = 'fixed'
   holder.style.left = '-99999px'
   holder.style.top = '0'
@@ -115,23 +95,23 @@ const renderTableCanvas = async (table: TablePayload) => {
   }
 }
 
-export const renderTableAsDataUrl = async (table: TablePayload) => {
-  const canvas = await renderTableCanvas(table)
+export const renderTableAsDataUrl = async (table: TablePayload, columnWidths?: ColumnWidths) => {
+  const canvas = await renderTableCanvas(table, columnWidths)
   return canvas.toDataURL('image/png')
 }
 
-export const renderTablesAsDataUrls = async (tables: TablePayload[]) => {
+export const renderTablesAsDataUrls = async (tables: TablePayload[], columnWidths?: TableColumnWidths) => {
   const images: string[] = []
 
-  for (const table of tables) {
-    images.push(await renderTableAsDataUrl(table))
+  for (const [index, table] of tables.entries()) {
+    images.push(await renderTableAsDataUrl(table, columnWidths?.[index]))
   }
 
   return images
 }
 
-export const copyTableAsImage = async (table: TablePayload) => {
-  const canvas = await renderTableCanvas(table)
+export const copyTableAsImage = async (table: TablePayload, columnWidths?: ColumnWidths) => {
+  const canvas = await renderTableCanvas(table, columnWidths)
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) {
     throw new Error('表格图片生成失败')

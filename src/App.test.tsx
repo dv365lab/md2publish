@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { copyTableAsImage, renderTablesAsDataUrls } from './lib/tableImage'
 
 vi.mock('./lib/tableImage', async () => {
   const actual = await vi.importActual<typeof import('./lib/tableImage')>('./lib/tableImage')
@@ -11,6 +12,7 @@ vi.mock('./lib/tableImage', async () => {
     renderTablesAsDataUrls: vi.fn(async (tables: unknown[]) =>
       tables.map((_, index) => `data:image/png;base64,dGFibGUt${index + 1}`),
     ),
+    copyTableAsImage: vi.fn().mockResolvedValue(undefined),
   }
 })
 
@@ -35,6 +37,7 @@ afterEach(() => {
 })
 
 beforeEach(() => {
+  vi.clearAllMocks()
   vi.stubGlobal('ClipboardItem', ClipboardItemMock)
   Object.assign(navigator, {
     clipboard: {
@@ -171,6 +174,37 @@ describe('App immersive preview', () => {
     })
 
     expect(screen.getByTestId('zsxq-output').querySelector('table')).toBeTruthy()
+  })
+
+  it('uses an adjusted ID width in both previews and both table-copy actions', async () => {
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: {
+        value: '| ID | Test Point | 期望 |\n| --- | --- | --- |\n| EX-L01 | exclusive burst | 合法 |',
+      },
+    })
+
+    const zsxqPreview = within(screen.getByTestId('zsxq-output'))
+    fireEvent.click(zsxqPreview.getByText('调整列宽'))
+    fireEvent.change(zsxqPreview.getByRole('spinbutton', { name: 'ID 列宽 (px)' }), {
+      target: { value: '180' },
+    })
+
+    expect(zsxqPreview.getByRole('cell', { name: 'EX-L01' })).toHaveStyle({ minWidth: '180px' })
+    expect(within(screen.getByTestId('wechat-output')).getByRole('cell', { name: 'EX-L01' }))
+      .toHaveStyle({ minWidth: '180px' })
+
+    fireEvent.click(screen.getByRole('button', { name: '复制文章' }))
+    await waitFor(() => expect(renderTablesAsDataUrls).toHaveBeenCalledWith(
+      expect.any(Array),
+      { 0: { 0: 180 } },
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: '复制表格图片' }))
+    await waitFor(() => expect(copyTableAsImage).toHaveBeenCalledWith(
+      expect.objectContaining({ header: ['ID', 'Test Point', '期望'] }),
+      { 0: 180 },
+    ))
   })
 
   it('imports a markdown file with its local image assets', async () => {

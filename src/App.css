@@ -379,6 +379,38 @@
   overflow-x: auto;
 }
 
+.article-table-width-controls {
+  margin-bottom: 10px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.article-table-width-controls summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.article-table-width-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.article-table-width-fields label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.article-table-width-fields input {
+  width: 70px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+}
+
 .article-table {
   width: 100%;
   border-collapse: collapse;

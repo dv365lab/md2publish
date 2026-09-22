@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ArticlePreview } from './ArticlePreview'
 import { buildRenderNodes } from '../lib/renderers'
 
@@ -42,6 +42,34 @@ describe('ArticlePreview', () => {
     const table = screen.getByRole('table')
     expect(table).toBeTruthy()
     expect(within(table).getByRole('columnheader', { name: '使用场景' })).toBeTruthy()
+  })
+
+  it('keeps ID values on one line and lets the reader adjust each column width', () => {
+    const nodes = buildRenderNodes(
+      '| ID | Test Point | 期望 |\n| --- | --- | --- |\n| EX-L01 | exclusive burst | 合法 |',
+      'zsxq',
+    )
+    const onTableColumnWidthChange = vi.fn()
+
+    render(
+      <ArticlePreview
+        nodes={nodes}
+        platform="zsxq"
+        tableColumnWidths={{}}
+        onTableColumnWidthChange={onTableColumnWidthChange}
+      />,
+    )
+
+    const idHeader = screen.getByRole('columnheader', { name: 'ID' })
+    const idCell = screen.getByRole('cell', { name: 'EX-L01' })
+    expect(idHeader).toHaveStyle({ minWidth: '136px', whiteSpace: 'nowrap' })
+    expect(idCell).toHaveStyle({ minWidth: '136px', whiteSpace: 'nowrap' })
+
+    fireEvent.click(screen.getByText('调整列宽'))
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'ID 列宽 (px)' }), {
+      target: { value: '180' },
+    })
+    expect(onTableColumnWidthChange).toHaveBeenCalledWith(0, 0, 180)
   })
 
   it('renders markdown images at their natural aspect ratio', () => {
