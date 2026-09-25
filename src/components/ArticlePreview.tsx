@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { InlineContent, ListBlock } from '../lib/markdown'
 import { headingAppearanceForPlatform, type Platform, type RenderNode } from '../lib/renderers'
 import { getColumnWidth, isIdColumn, type TableColumnWidths } from '../lib/tableColumns'
@@ -13,16 +13,17 @@ type ArticlePreviewProps = {
   onTableColumnWidthChange?: (tableIndex: number, columnIndex: number, width?: number) => void
 }
 
-const renderInlineContent = (content: InlineContent[]) =>
-  content.map((part, index) =>
-    part.type === 'link' ? (
-      <a key={`link-${index}`} href={part.url}>
-        {part.text}
+const renderInlineContent = (content: InlineContent[]): ReactNode[] =>
+  content.map((part, index) => {
+    const value = part.type === 'link' ? (
+      <a href={part.url}>
+        {part.content ? renderInlineContent(part.content) : part.text}
       </a>
-    ) : (
-      <span key={`text-${index}`}>{part.value}</span>
-    ),
-  )
+    ) : part.value
+    return part.bold
+      ? <strong key={index} style={{ fontWeight: 700 }}>{value}</strong>
+      : <span key={index}>{value}</span>
+  })
 
 const renderList = (list: ListBlock, key: string) => {
   const Tag = list.ordered ? 'ol' : 'ul'
@@ -75,7 +76,7 @@ export function ArticlePreview({
           case 'paragraph':
             return (
               <p key={key} className="article-block article-paragraph">
-                {node.text}
+                {node.content ? renderInlineContent(node.content) : node.text}
               </p>
             )
           case 'list':
@@ -92,7 +93,8 @@ export function ArticlePreview({
                 ) : null}
                 {node.lines.map((line, lineIndex) => (
                   <p key={`${key}-${lineIndex}`}>
-                    {platform === 'zsxq' || node.calloutLabel ? line : `引用：${line}`}
+                    {platform === 'wechat' && !node.calloutLabel ? '引用：' : ''}
+                    {node.content?.[lineIndex] ? renderInlineContent(node.content[lineIndex]) : line}
                   </p>
                 ))}
               </blockquote>
@@ -174,7 +176,7 @@ export function ArticlePreview({
                     <thead>
                       <tr>
                         {node.header.map((cell, cellIndex) => (
-                          <th key={`${key}-head-${cellIndex}`} style={columnStyle(cellIndex)}>{cell}</th>
+                          <th key={`${key}-head-${cellIndex}`} style={columnStyle(cellIndex)}>{node.headerContent?.[cellIndex] ? renderInlineContent(node.headerContent[cellIndex]) : cell}</th>
                         ))}
                       </tr>
                     </thead>
@@ -182,7 +184,7 @@ export function ArticlePreview({
                       {node.rows.map((row, rowIndex) => (
                         <tr key={`${key}-row-${rowIndex}`}>
                           {row.map((cell, cellIndex) => (
-                            <td key={`${key}-cell-${rowIndex}-${cellIndex}`} style={columnStyle(cellIndex)}>{cell}</td>
+                            <td key={`${key}-cell-${rowIndex}-${cellIndex}`} style={columnStyle(cellIndex)}>{node.rowsContent?.[rowIndex]?.[cellIndex] ? renderInlineContent(node.rowsContent[rowIndex][cellIndex]) : cell}</td>
                           ))}
                         </tr>
                       ))}

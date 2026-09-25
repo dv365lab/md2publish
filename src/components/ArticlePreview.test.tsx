@@ -9,6 +9,85 @@ afterEach(() => {
 })
 
 describe('ArticlePreview', () => {
+  it.each((['zsxq', 'wechat'] as const).flatMap((platform) => [
+    {
+      platform,
+      name: 'adjacent Chinese punctuation',
+      source: '本期采用的普通单根透明Switch，有一个**上行端口（Upstream Port，USP）**朝向根侧，两个**下行端口（Downstream Port，DP）**朝向设备侧。',
+      boldTexts: ['上行端口（Upstream Port，USP）', '下行端口（Downstream Port，DP）'],
+    },
+    {
+      platform,
+      name: 'spaces before both closing markers',
+      source: '本期采用的普通单根透明Switch，有一个**上行端口（Upstream Port，USP） **朝向根侧，两个**下行端口（Downstream Port，DP） **朝向设备侧。',
+      boldTexts: ['上行端口（Upstream Port，USP）', '下行端口（Downstream Port，DP）'],
+    },
+    {
+      platform,
+      name: 'mixed standard and spaced markers',
+      source: '**Switch**有一个**上行端口（USP） **朝向根侧，两个**下行端口（DP）**朝向设备侧。',
+      boldTexts: ['Switch', '上行端口（USP）', '下行端口（DP）'],
+    },
+  ]))('keeps exact bold ranges with $name in the $platform preview', ({ platform, source, boldTexts }) => {
+    const { container } = render(
+      <ArticlePreview nodes={buildRenderNodes(source, platform)} platform={platform} />,
+    )
+
+    expect(Array.from(container.querySelectorAll('strong'), (node) => node.textContent?.trim())).toEqual(boldTexts)
+    expect(container.textContent).not.toContain('**')
+    expect(container.textContent).toContain('朝向根侧，两个')
+    expect(container.textContent).toContain('朝向设备侧。')
+  })
+
+  it.each(['zsxq', 'wechat'] as const)(
+    'renders bold text and removes unresolved footnotes in the %s preview',
+    (platform) => {
+      const source = '**加粗** 正文[^1][^source]。\n\n**RC，全称Root Complex，根复合体。 **它是处理器。\n\n- **列表重点**[^note]\n\n> **引用重点**[^2]\n\n| 字段 | 内容 |\n| --- | --- |\n| 名称 | **表格重点**[^3] |'
+      const { container } = render(
+        <ArticlePreview nodes={buildRenderNodes(source, platform)} platform={platform} />,
+      )
+      const boldTexts = Array.from(container.querySelectorAll('strong'), (node) => node.textContent?.trim())
+
+      expect(boldTexts).toEqual(expect.arrayContaining([
+        '加粗',
+        'RC，全称Root Complex，根复合体。',
+        '列表重点',
+        '引用重点',
+        '表格重点',
+      ]))
+      expect(container.textContent).not.toMatch(/\[\^[^\]]+\]/u)
+      expect(container.textContent).not.toContain('**')
+      expect(container.textContent).toContain('它是处理器。')
+    },
+  )
+
+  it.each(['zsxq', 'wechat'] as const)(
+    'preserves code and escaped asterisks in the %s preview',
+    (platform) => {
+      const source = '`**行内代码**[^1]`\n\n```text\n**代码块**[^source]\n```\n\n\\*\\*字面星号\\*\\*'
+      const { container } = render(
+        <ArticlePreview nodes={buildRenderNodes(source, platform)} platform={platform} />,
+      )
+
+      expect(container.textContent).toContain('**行内代码**[^1]')
+      expect(container.textContent).toContain('**代码块**[^source]')
+      expect(container.textContent).toContain('**字面星号**')
+      expect(container.querySelectorAll('strong')).toHaveLength(0)
+    },
+  )
+
+  it.each(['zsxq', 'wechat'] as const)(
+    'escapes html inside bold text in the %s preview',
+    (platform) => {
+      const { container } = render(
+        <ArticlePreview nodes={buildRenderNodes('**1 < 2 & 3 > 2**', platform)} platform={platform} />,
+      )
+
+      expect(container.querySelector('strong')?.textContent).toBe('1 < 2 & 3 > 2')
+      expect(container.innerHTML).toContain('1 &lt; 2 &amp; 3 &gt; 2')
+    },
+  )
+
   it('renders wechat markdown tables as actual table elements', () => {
     const nodes = buildRenderNodes(
       `## 一、先看结论：四种环境到底有什么不同

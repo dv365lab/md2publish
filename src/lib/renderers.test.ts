@@ -1,6 +1,148 @@
 import { describe, expect, it } from 'vitest'
 import { buildRenderNodes, renderArticle, renderClipboardArticle, renderClipboardHtml } from './renderers'
 
+describe('inline formatting regressions', () => {
+  it.each(['zsxq', 'wechat'] as const)('repairs bold inside link labels without breaking %s links', (platform) => {
+    const container = document.createElement('div')
+    container.innerHTML = renderClipboardHtml(
+      '- [阅读**上行（USP） **朝向根侧，两个**下行（DP）**内容](https://example.com)', platform,
+    )
+    const link = container.querySelector('a')
+    expect(container.querySelectorAll('a')).toHaveLength(1)
+    expect(link?.getAttribute('href')).toBe('https://example.com')
+    expect(link?.textContent).toBe('阅读上行（USP） 朝向根侧，两个下行（DP）内容')
+    expect(container.textContent).toBe(link?.textContent)
+    expect(Array.from(link!.querySelectorAll('strong'), (node) => node.textContent)).toEqual(['上行（USP）', '下行（DP）'])
+  })
+
+  it.each((['zsxq', 'wechat'] as const).flatMap((platform) => [
+    {
+      platform,
+      name: 'adjacent Chinese punctuation',
+      source: '本期采用的普通单根透明Switch，有一个**上行端口（Upstream Port，USP）**朝向根侧，两个**下行端口（Downstream Port，DP）**朝向设备侧。',
+      boldTexts: ['上行端口（Upstream Port，USP）', '下行端口（Downstream Port，DP）'],
+    },
+    {
+      platform,
+      name: 'spaces before both closing markers',
+      source: '本期采用的普通单根透明Switch，有一个**上行端口（Upstream Port，USP） **朝向根侧，两个**下行端口（Downstream Port，DP） **朝向设备侧。',
+      boldTexts: ['上行端口（Upstream Port，USP）', '下行端口（Downstream Port，DP）'],
+    },
+    {
+      platform,
+      name: 'mixed standard and spaced markers',
+      source: '**Switch**有一个**上行端口（USP） **朝向根侧，两个**下行端口（DP）**朝向设备侧。',
+      boldTexts: ['Switch', '上行端口（USP）', '下行端口（DP）'],
+    },
+  ]))('keeps exact bold ranges with $name in $platform output', ({ platform, source, boldTexts }) => {
+    const container = document.createElement('div')
+    container.innerHTML = renderClipboardHtml(source, platform)
+
+    expect(Array.from(container.querySelectorAll('strong'), (node) => node.textContent?.trim())).toEqual(boldTexts)
+    expect(container.textContent).not.toContain('**')
+    expect(container.textContent).toContain('朝向根侧，两个')
+    expect(container.textContent).toContain('朝向设备侧。')
+    expect(renderArticle(source, platform)).not.toContain('**')
+    expect(renderClipboardArticle(source, platform)).not.toContain('**')
+  })
+
+  it('keeps link targets and mixed bold labels intact', () => {
+    const source = '- [阅读**重点**内容](https://example.com)\n\n<https://example.com/a[^1]>'
+    const container = document.createElement('div')
+    container.innerHTML = renderClipboardHtml(source, 'wechat')
+
+    expect(container.querySelector('a')?.textContent).toBe('阅读重点内容')
+    expect(container.querySelector('a strong')?.textContent).toBe('重点')
+    expect(renderClipboardArticle(source, 'wechat')).toContain('阅读重点内容（https://example.com）')
+    expect(container.textContent).toContain('https://example.com/a[^1]')
+  })
+
+  it('filters defined footnotes without exposing their definitions', () => {
+    const source = '正文[^1]与**重点[^other]**。\n\n[^1]: 脚注说明'
+    expect(renderClipboardArticle(source, 'wechat')).toBe('正文与重点。')
+    const html = renderClipboardHtml(source, 'wechat')
+    expect(html).not.toContain('[^')
+    expect(html).not.toContain('脚注说明')
+  })
+
+  it('preserves every quote continuation when cleaning inline markers', () => {
+    const source = '> [!IMPORTANT]\n> **重要内容[^1]。 **\n> 后续内容[^2]。\n> 最后一行 **加粗**'
+    const html = renderClipboardHtml(source, 'wechat')
+    const container = document.createElement('div')
+    container.innerHTML = html
+
+    expect(container.textContent).toBe('重要提示重要内容。后续内容。最后一行 加粗')
+    expect(Array.from(container.querySelectorAll('strong'), (node) => node.textContent)).toEqual(['重要内容。', '加粗'])
+    expect(renderArticle('> 第一行[^1]\n> 第二行。', 'wechat')).toBe('引用：第一行\n引用：第二行。')
+  })
+
+  it.each(['zsxq', 'wechat'] as const)(
+    'filters unresolved footnotes from every %s output format',
+    (platform) => {
+      const source = '正文[^1]继续[^source]。\n\n> 引用[^2]\n\n- 列表[^note]\n\n| 字段 | 内容 |\n| --- | --- |\n| 名称[^3] | 值[^value] |'
+      const nodes = buildRenderNodes(source, platform)
+
+      expect(JSON.stringify(nodes)).not.toMatch(/\[\^[^\]]+\]/u)
+      expect(renderArticle(source, platform)).not.toMatch(/\[\^[^\]]+\]/u)
+      expect(renderClipboardArticle(source, platform)).not.toMatch(/\[\^[^\]]+\]/u)
+      expect(renderClipboardHtml(source, platform)).not.toMatch(/\[\^[^\]]+\]/u)
+      expect(renderArticle(source, platform)).toContain('正文继续。')
+    },
+  )
+
+  it.each(['zsxq', 'wechat'] as const)(
+    'preserves standard and tolerant bold formatting in %s clipboard html',
+    (platform) => {
+      const source = '**加粗** 正文。\n\n**RC，全称Root Complex，根复合体。 **它是处理器。\n\n- **列表重点**\n\n> **引用重点**\n\n| 字段 | 内容 |\n| --- | --- |\n| 名称 | **表格重点** |'
+      const html = renderClipboardHtml(source, platform)
+      const container = document.createElement('div')
+      container.innerHTML = html
+      const boldTexts = Array.from(container.querySelectorAll('strong'), (node) => node.textContent?.trim())
+
+      expect(boldTexts).toEqual(expect.arrayContaining([
+        '加粗',
+        'RC，全称Root Complex，根复合体。',
+        '列表重点',
+        '引用重点',
+        '表格重点',
+      ]))
+      expect(container.textContent).not.toContain('**')
+      expect(container.textContent).toContain('它是处理器。')
+      expect(renderArticle(source, platform)).not.toContain('**')
+      expect(renderClipboardArticle(source, platform)).not.toContain('**')
+    },
+  )
+
+  it.each(['zsxq', 'wechat'] as const)(
+    'keeps literal syntax in code and escaped asterisks for %s',
+    (platform) => {
+      const source = '`**行内代码**[^1]`\n\n```text\n**代码块**[^source]\n```\n\n\\*\\*字面星号\\*\\*'
+      const container = document.createElement('div')
+      container.innerHTML = renderClipboardHtml(source, platform)
+
+      expect(container.textContent).toContain('**行内代码**[^1]')
+      expect(container.textContent).toContain('**代码块**[^source]')
+      expect(container.textContent).toContain('**字面星号**')
+      const boldTexts = Array.from(container.querySelectorAll('strong'), (node) => node.textContent)
+      expect(boldTexts).not.toContain('行内代码')
+      expect(boldTexts).not.toContain('代码块')
+      expect(boldTexts).not.toContain('字面星号')
+    },
+  )
+
+  it.each(['zsxq', 'wechat'] as const)(
+    'escapes html inside bold content copied for %s',
+    (platform) => {
+      const html = renderClipboardHtml('**1 < 2 & 3 > 2**', platform)
+      const container = document.createElement('div')
+      container.innerHTML = html
+
+      expect(html).toContain('1 &lt; 2 &amp; 3 &gt; 2')
+      expect(container.querySelector('strong')?.textContent).toBe('1 < 2 & 3 > 2')
+    },
+  )
+})
+
 describe('renderArticle', () => {
   const markdown = `# 主标题
 

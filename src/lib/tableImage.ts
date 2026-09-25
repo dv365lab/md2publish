@@ -1,15 +1,22 @@
-import { buildRenderNodes, type RenderNode } from './renderers'
+import html2canvas from 'html2canvas'
+import type { TableContent } from './markdown'
+import { buildRenderNodes, renderInlineHtml, type RenderNode } from './renderers'
 import { getColumnStyle, type ColumnWidths, type TableColumnWidths } from './tableColumns'
 
 export type TablePayload = {
   header: string[]
   rows: string[][]
-}
+} & Partial<TableContent>
 
 export const extractTables = (nodes: RenderNode[]): TablePayload[] =>
   nodes
     .filter((node): node is Extract<RenderNode, { type: 'table' }> => node.type === 'table')
-    .map((node) => ({ header: node.header, rows: node.rows }))
+    .map((node) => ({
+      header: node.header,
+      rows: node.rows,
+      headerContent: node.headerContent,
+      rowsContent: node.rowsContent,
+    }))
 
 export const extractTablesFromMarkdown = (markdown: string, platform: 'zsxq' | 'wechat') =>
   extractTables(buildRenderNodes(markdown, platform))
@@ -28,7 +35,7 @@ const renderTableMarkup = (table: TablePayload, columnWidths?: ColumnWidths) => 
         ${table.header
           .map(
             (cell, columnIndex) =>
-              `<th style="padding:14px 16px;border:1px solid #d1d5db;background:#eef4ff;color:#0f172a;font-weight:700;text-align:left;font-size:15px;line-height:1.8;${getColumnStyle(cell, columnIndex, columnWidths)}">${escapeHtml(cell)}</th>`,
+              `<th style="padding:14px 16px;border:1px solid #d1d5db;background:#eef4ff;color:#0f172a;font-weight:700;text-align:left;font-size:15px;line-height:1.8;${getColumnStyle(cell, columnIndex, columnWidths)}">${table.headerContent?.[columnIndex] ? renderInlineHtml(table.headerContent[columnIndex]) : escapeHtml(cell)}</th>`,
           )
           .join('')}
       </tr>
@@ -36,11 +43,11 @@ const renderTableMarkup = (table: TablePayload, columnWidths?: ColumnWidths) => 
     <tbody>
       ${table.rows
         .map(
-          (row) =>
+          (row, rowIndex) =>
             `<tr>${row
               .map(
                 (cell, columnIndex) =>
-                  `<td style="padding:14px 16px;border:1px solid #d1d5db;color:#1f2937;text-align:left;font-size:15px;line-height:1.8;${getColumnStyle(table.header[columnIndex] ?? '', columnIndex, columnWidths)}">${escapeHtml(cell)}</td>`,
+                  `<td style="padding:14px 16px;border:1px solid #d1d5db;color:#1f2937;text-align:left;font-size:15px;line-height:1.8;${getColumnStyle(table.header[columnIndex] ?? '', columnIndex, columnWidths)}">${table.rowsContent?.[rowIndex]?.[columnIndex] ? renderInlineHtml(table.rowsContent[rowIndex][columnIndex]) : escapeHtml(cell)}</td>`,
               )
               .join('')}</tr>`,
         )
@@ -83,7 +90,6 @@ const renderTableCanvas = async (table: TablePayload, columnWidths?: ColumnWidth
       throw new Error('无法创建表格截图节点')
     }
 
-    const html2canvas = (await import('html2canvas')).default
     return await html2canvas(target, {
       backgroundColor: '#ffffff',
       scale: 2,

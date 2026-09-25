@@ -1,17 +1,17 @@
-import { parseMarkdown, type InlineContent, type ListItemBlock } from './markdown'
+import { parseMarkdown, type InlineContent, type ListItemBlock, type TableContent } from './markdown'
 
 export type Platform = 'zsxq' | 'wechat'
 export type ImageSourceMap = Readonly<Record<string, string>>
 
 export type RenderNode =
   | { type: 'heading'; text: string; level: 1 | 2 | 3 }
-  | { type: 'paragraph'; text: string }
+  | { type: 'paragraph'; text: string; content?: InlineContent[] }
   | { type: 'list'; ordered: boolean; start: number; items: ListItemBlock[] }
-  | { type: 'quote'; lines: string[]; calloutLabel?: string }
+  | { type: 'quote'; lines: string[]; content?: InlineContent[][]; calloutLabel?: string }
   | { type: 'code'; label: string; code: string; trailingColon: boolean }
   | { type: 'thematicBreak'; marker: string }
   | { type: 'image'; title: string; metaLabel: string; urlLabel: string; alt: string; url: string; src: string }
-  | { type: 'table'; header: string[]; rows: string[][] }
+  | ({ type: 'table'; header: string[]; rows: string[][] } & Partial<TableContent>)
 
 type HeadingLevel = 1 | 2 | 3
 
@@ -58,20 +58,42 @@ const calloutLabels: Record<string, string> = {
   CAUTION: '警告',
 }
 
-const normalizeQuote = (lines: string[]) => {
-  const normalizedLines = lines
-    .flatMap((line) => line.split('\n'))
-    .map((line) => line.trim())
-    .filter(Boolean)
+const inlineValue = (part: InlineContent) => part.type === 'text' ? part.value : part.text
+
+const sliceInline = (content: InlineContent[], start: number, end = Infinity) => {
+  let offset = 0
+  return content.flatMap((part) => {
+    const value = inlineValue(part)
+    const sliced = value.slice(Math.max(0, start - offset), Math.max(0, end - offset))
+    offset += value.length
+    if (!sliced) return []
+    return [part.type === 'text' ? { ...part, value: sliced } : { ...part, text: sliced }]
+  })
+}
+
+const normalizeQuote = (source: InlineContent[][]) => {
+  const content = source.flatMap((paragraph) => {
+    const text = paragraph.map(inlineValue).join('')
+    let offset = 0
+    return text.split('\n').flatMap((line) => {
+      const start = offset + line.length - line.trimStart().length
+      const end = offset + line.trimEnd().length
+      offset += line.length + 1
+      return line.trim() ? [sliceInline(paragraph, start, end)] : []
+    })
+  })
+  const normalizedLines = content.map((line) => line.map(inlineValue).join(''))
   const marker = normalizedLines[0]?.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/iu)
 
   if (!marker) {
-    return { lines: normalizedLines }
+    return { lines: normalizedLines, content }
   }
 
   const firstLine = normalizedLines[0].replace(marker[0], '').trim()
+  content[0] = sliceInline(content[0], normalizedLines[0].length - firstLine.length)
   return {
     lines: [firstLine, ...normalizedLines.slice(1)].filter(Boolean),
+    content: firstLine ? content : content.slice(1),
     calloutLabel: calloutLabels[marker[1].toUpperCase()],
   }
 }
@@ -184,11 +206,11 @@ export const buildRenderNodes = (
         }
       }
       case 'paragraph':
-        return { type: 'paragraph', text: block.text }
+        return { type: 'paragraph', text: block.text, content: block.content }
       case 'list':
         return { type: 'list', ordered: block.ordered, start: block.start, items: block.items }
       case 'quote':
-        return { type: 'quote', ...normalizeQuote(block.text) }
+        return { type: 'quote', ...normalizeQuote(block.content) }
       case 'code':
         return codeNode(block.lang, block.code, platform)
       case 'image':
@@ -212,7 +234,7 @@ export const buildRenderNodes = (
               src: resolveImageSource(block.url, imageSources),
             }
       case 'table':
-        return { type: 'table', header: block.header, rows: block.rows }
+        return { type: 'table', header: block.header, rows: block.rows, headerContent: block.headerContent, rowsContent: block.rowsContent }
       default:
         return { type: 'paragraph', text: '' }
     }
@@ -379,13 +401,14 @@ const escapeHtml = (value: string) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 
-const renderInlineHtml = (content: InlineContent[]) =>
+export const renderInlineHtml = (content: InlineContent[]): string =>
   content
-    .map((part) =>
-      part.type === 'link'
-        ? `<a href="${escapeHtml(part.url)}">${escapeHtml(part.text)}</a>`
-        : escapeHtml(part.value),
-    )
+    .map((part) => {
+      const html = part.type === 'link'
+        ? `<a href="${escapeHtml(part.url)}">${part.content ? renderInlineHtml(part.content) : escapeHtml(part.text)}</a>`
+        : escapeHtml(part.value)
+      return part.bold ? `<strong style="font-weight:700;">${html}</strong>` : html
+    })
     .join('')
 
 const renderListHtml = (
@@ -441,7 +464,7 @@ const renderWechatClipboardQuote = (
   const body = node.lines
     .map(
       (line, index) =>
-        `<p style="margin:0${index < node.lines.length - 1 ? ' 0 8px' : ''};color:#5b6472;font-size:15px;line-height:1.7;">${escapeHtml(line)}</p>`,
+        `<p style="margin:0${index < node.lines.length - 1 ? ' 0 8px' : ''};color:#5b6472;font-size:15px;line-height:1.7;">${node.content?.[index] ? renderInlineHtml(node.content[index]) : escapeHtml(line)}</p>`,
     )
     .join('')
 
@@ -471,7 +494,7 @@ const renderZsxqClipboardQuote = (
           : ''
         const margin = index < node.lines.length - 1 ? '0' : blockMargin
 
-        return `<p class="ql-line-height-1_6" style="margin:${margin};line-height:1.6;"><span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="color:#475569;font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${prefix}${escapeHtml(line)}</span></p>`
+        return `<p class="ql-line-height-1_6" style="margin:${margin};line-height:1.6;"><span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="color:#475569;font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${prefix}${node.content?.[index] ? renderInlineHtml(node.content[index]) : escapeHtml(line)}</span></p>`
       },
     )
     .join('')
@@ -516,11 +539,12 @@ export const renderClipboardHtml = (
           return `<${tag} style="color:${appearance.color};font-weight:${appearance.fontWeight};${typographyStyle}${layoutStyle}"><strong>${escapeHtml(node.text)}</strong></${tag}>`
         }
         case 'paragraph': {
+          const html = node.content ? renderInlineHtml(node.content) : escapeHtml(node.text)
           if (platform === 'zsxq') {
-            return `<p class="ql-line-height-1_6" style="margin:${zsxqBlockMargin};line-height:1.6;"><span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${escapeHtml(node.text)}</span></p>`
+            return `<p class="ql-line-height-1_6" style="margin:${zsxqBlockMargin};line-height:1.6;"><span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${html}</span></p>`
           }
 
-          return `<p style="margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;">${escapeHtml(node.text)}</p>`
+          return `<p style="margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;">${html}</p>`
         }
         case 'list': {
           return renderListHtml(
@@ -567,14 +591,14 @@ export const renderClipboardHtml = (
           tableIndex += 1
           return `<table border="1" cellspacing="0" cellpadding="8" style="border-collapse:collapse;width:100%;max-width:100%;table-layout:auto;border:1px solid #d1d5db;"><thead><tr>${node.header
             .map(
-              (cell) =>
-                `<th style="padding:10px 12px;border:1px solid #d1d5db;text-align:left;vertical-align:top;background:#f1f5ff;word-break:break-word;">${escapeHtml(cell)}</th>`,
+              (cell, cellIndex) =>
+                `<th style="padding:10px 12px;border:1px solid #d1d5db;text-align:left;vertical-align:top;background:#f1f5ff;word-break:break-word;">${node.headerContent?.[cellIndex] ? renderInlineHtml(node.headerContent[cellIndex]) : escapeHtml(cell)}</th>`,
             )
             .join('')}</tr></thead><tbody>${node.rows
             .map(
-              (row) =>
+              (row, rowIndex) =>
                 `<tr>${row
-                  .map((cell) => `<td style="padding:10px 12px;border:1px solid #d1d5db;text-align:left;vertical-align:top;word-break:break-word;">${escapeHtml(cell)}</td>`)
+                  .map((cell, cellIndex) => `<td style="padding:10px 12px;border:1px solid #d1d5db;text-align:left;vertical-align:top;word-break:break-word;">${node.rowsContent?.[rowIndex]?.[cellIndex] ? renderInlineHtml(node.rowsContent[rowIndex][cellIndex]) : escapeHtml(cell)}</td>`)
                   .join('')}</tr>`,
             )
             .join('')}</tbody></table>`

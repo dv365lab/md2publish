@@ -1,7 +1,7 @@
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
-import { visit } from 'unist-util-visit'
+import { SKIP, visit } from 'unist-util-visit'
 import type {
   Root,
   RootContent,
@@ -15,9 +15,12 @@ import type {
   TableCell,
 } from 'mdast'
 
-export type InlineContent =
+export type InlineContent = (
   | { type: 'text'; value: string }
-  | { type: 'link'; text: string; url: string }
+  | { type: 'link'; text: string; url: string; content?: InlineContent[] }
+) & { bold?: boolean }
+
+export type TableContent = { headerContent: InlineContent[][]; rowsContent: InlineContent[][][] }
 
 export type ListItemBlock = {
   content: InlineContent[]
@@ -32,15 +35,121 @@ export type ListBlock = {
 
 type Block =
   | { type: 'heading'; depth: number; text: string }
-  | { type: 'paragraph'; text: string }
+  | { type: 'paragraph'; text: string; content: InlineContent[] }
   | { type: 'list'; ordered: boolean; start: number; items: ListItemBlock[] }
-  | { type: 'quote'; text: string[] }
+  | { type: 'quote'; text: string[]; content: InlineContent[][] }
   | { type: 'code'; lang: string; code: string }
   | { type: 'thematicBreak' }
   | { type: 'image'; alt: string; url: string }
-  | { type: 'table'; header: string[]; rows: string[][] }
+  | ({ type: 'table'; header: string[]; rows: string[][] } & TableContent)
 
 const parser = unified().use(remarkParse).use(remarkGfm)
+
+// Repair only prose text tokens, so code, link destinations and escaped markers
+// retain their original meaning. Sentinels keep fragments in inline context and
+// preserve boundary whitespace that the block parser would otherwise trim.
+const parseInlineFragment = (source: string): PhrasingContent[] => {
+  const tree = publishingTree(`x${source}y`)
+  // Text positions can span blockquote continuation prefixes (\n> ...).
+  // Keep every paragraph when reparsing such a fragment, not just the first.
+  const collect = (nodes: RootContent[]): PhrasingContent[] => nodes.flatMap((node, index) => {
+    const children = node.type === 'paragraph'
+      ? node.children
+      : node.type === 'blockquote' ? collect(node.children) : []
+    return index > 0 ? [{ type: 'text', value: '\n' }, ...children] : children
+  })
+  const content = collect(tree.children)
+  const first = content[0]
+  if (first?.type === 'text') first.value = first.value.slice(1)
+  const last = content.at(-1)
+  if (last?.type === 'text') last.value = last.value.slice(0, -1)
+  // Fragment offsets belong to the temporary source, not the original document.
+  visit(tree, (node) => { delete node.position })
+  return content
+}
+
+const publishingTree = (input: string): Root => {
+  const tree = parser.parse(input) as Root
+
+  // CommonMark can pair the closing ** of one Chinese phrase with the opening
+  // ** of the next. Repair the whole inline container before visiting its text.
+  visit(tree, ['paragraph', 'heading', 'tableCell', 'link'], (node) => {
+    if (node.type !== 'paragraph' && node.type !== 'heading' && node.type !== 'tableCell' && node.type !== 'link') return
+    let hasLiteralMarkers = false
+    const protectedRanges: [number, number][] = []
+    const protect = (start?: number, end?: number) => {
+      if (start !== undefined && end !== undefined) protectedRanges.push([start, end])
+    }
+    visit(node, (child) => {
+      if (child.type === 'inlineCode' || child.type === 'html' || child.type === 'image') {
+        protect(child.position?.start.offset, child.position?.end.offset)
+        return SKIP
+      }
+      if (child.type === 'link') {
+        const first = child.children[0]
+        // A label is its own inline container. Pairing its markers with the
+        // surrounding paragraph would cut the [label](destination) in half.
+        if (child !== node || (child.children.length === 1 && first.type === 'text' && first.value === child.url)) {
+          protect(child.position?.start.offset, child.position?.end.offset)
+          return SKIP
+        }
+      }
+      if (child.type === 'text' && child.value.includes('**')) hasLiteralMarkers = true
+    })
+    if (!hasLiteralMarkers) return
+
+    const start = node.children[0]?.position?.start.offset
+    const end = node.children.at(-1)?.position?.end.offset
+    if (start === undefined || end === undefined) return
+    const source = input.slice(start, end)
+    const markers = [...source.matchAll(/\\[\s\S]|\*+/gu)]
+      .filter((match) => match[0] === '**' && !protectedRanges.some(
+        ([from, to]) => start + match.index >= from && start + match.index < to,
+      ))
+      .map((match) => match.index)
+    // Leave unmatched markers and triple-star emphasis to the standard parser.
+    if (markers.length < 2 || markers.length % 2 !== 0) return
+
+    const parts: PhrasingContent[] = []
+    let cursor = 0
+    for (let index = 0; index < markers.length; index += 2) {
+      const opening = markers[index]
+      const closing = markers[index + 1]
+      const value = source.slice(opening + 2, closing)
+      if (!value.trim()) continue
+      parts.push(...parseInlineFragment(source.slice(cursor, opening)))
+      const leading = value.match(/^\s*/u)![0]
+      const trailing = value.match(/\s*$/u)![0]
+      if (leading) parts.push({ type: 'text', value: leading })
+      parts.push({ type: 'strong', children: parseInlineFragment(value.trim()) })
+      if (trailing) parts.push({ type: 'text', value: trailing })
+      cursor = closing + 2
+    }
+    if (!cursor) return
+    parts.push(...parseInlineFragment(source.slice(cursor)))
+    node.children = parts
+  })
+
+  visit(tree, 'text', (node, index, parent) => {
+    if (index === undefined || !parent || !node.position) return
+    if (parent.type === 'link' && parent.url === node.value) return
+    const source = input.slice(node.position.start.offset, node.position.end.offset)
+    const parts: PhrasingContent[] = []
+    let cursor = 0
+    // Keep escaped characters literal and discard unresolved footnote references.
+    const pattern = /\\[\s\S]|\[\^[^\]\s]+\]/gu
+    for (const match of source.matchAll(pattern)) {
+      if (match[0].startsWith('\\')) continue
+      parts.push(...parseInlineFragment(source.slice(cursor, match.index)))
+      cursor = match.index + match[0].length
+    }
+    if (!cursor) return
+    parts.push(...parseInlineFragment(source.slice(cursor)))
+    parent.children.splice(index, 1, ...parts)
+    return index + parts.length
+  })
+  return tree
+}
 
 export const extractImageReferences = (input: string) => {
   const tree = parser.parse(input) as Root
@@ -92,27 +201,31 @@ const imageToText = (node: Image) => {
   return `图片：${label}（${node.url}）`
 }
 
-const inlineContent = (nodes: PhrasingContent[] = []): InlineContent[] => {
+const inlineContent = (
+  nodes: PhrasingContent[] = [],
+  bold = false,
+  linksAsText = false,
+): InlineContent[] => {
   const content: InlineContent[] = []
 
-  const appendText = (value: string) => {
+  const appendText = (value: string, isBold = bold) => {
     if (!value) {
       return
     }
 
     const previous = content.at(-1)
-    if (previous?.type === 'text') {
+    if (previous?.type === 'text' && Boolean(previous.bold) === isBold) {
       previous.value += value
       return
     }
 
-    content.push({ type: 'text', value })
+    content.push({ type: 'text', value, ...(isBold ? { bold: true } : {}) })
   }
 
   const appendContent = (parts: InlineContent[]) => {
     for (const part of parts) {
       if (part.type === 'text') {
-        appendText(part.value)
+        appendText(part.value, Boolean(part.bold))
       } else {
         content.push(part)
       }
@@ -127,7 +240,7 @@ const inlineContent = (nodes: PhrasingContent[] = []): InlineContent[] => {
       case 'emphasis':
       case 'strong':
       case 'delete':
-        appendContent(inlineContent(node.children))
+        appendContent(inlineContent(node.children, bold || node.type === 'strong', linksAsText))
         break
       case 'inlineCode':
         appendText(`“${node.value}”`)
@@ -136,7 +249,12 @@ const inlineContent = (nodes: PhrasingContent[] = []): InlineContent[] => {
         appendText('\n')
         break
       case 'link':
-        content.push({ type: 'link', text: joinInline(node.children), url: node.url })
+        if (linksAsText) {
+          appendContent(inlineContent(node.children, bold, true))
+          appendText(`（${node.url}）`)
+        } else {
+          content.push({ type: 'link', text: joinInline(node.children), url: node.url, content: inlineContent(node.children, bold, true) })
+        }
         break
       case 'image':
         appendText(imageToText(node))
@@ -156,7 +274,7 @@ const paragraphToBlocks = (nodes: PhrasingContent[]): Block[] => {
   const flushText = () => {
     const text = joinInline(textNodes)
     if (text) {
-      blocks.push({ type: 'paragraph', text })
+      blocks.push({ type: 'paragraph', text, content: inlineContent(textNodes, false, true) })
     }
     textNodes = []
   }
@@ -236,7 +354,7 @@ const listItemToText = (item: ListItemBlock): string => {
 }
 
 export const parseMarkdown = (input: string): Block[] => {
-  const tree = parser.parse(input) as Root
+  const tree = publishingTree(input)
   const blocks: Block[] = []
 
   for (const current of tree.children as RootContent[]) {
@@ -262,15 +380,15 @@ export const parseMarkdown = (input: string): Block[] => {
     }
 
     if (current.type === 'blockquote') {
-      const lines = current.children
+      const content = current.children
         .map((child) => {
           if (child.type === 'paragraph') {
-            return joinInline(child.children)
+            return inlineContent(child.children, false, true)
           }
 
           if (child.type === 'list') {
             const list = listToBlock(child)
-            return list.items
+            const text = list.items
               .map((item, itemIndex) => {
                 const text = listItemToText(item)
                 if (!text) {
@@ -280,14 +398,16 @@ export const parseMarkdown = (input: string): Block[] => {
               })
               .filter(Boolean)
               .join('\n')
+            return [{ type: 'text' as const, value: text }]
           }
 
-          return ''
+          return []
         })
-        .filter(Boolean)
+        .filter((parts) => parts.length > 0)
+      const lines = content.map(inlineContentToText)
 
       if (lines.length > 0) {
-        blocks.push({ type: 'quote', text: lines })
+        blocks.push({ type: 'quote', text: lines, content })
       }
       continue
     }
@@ -317,6 +437,8 @@ export const parseMarkdown = (input: string): Block[] => {
         type: 'table',
         header: tableRowToText(headerRow),
         rows: bodyRows.map(tableRowToText),
+        headerContent: headerRow.children.map((cell) => inlineContent(cell.children, false, true)),
+        rowsContent: bodyRows.map((row) => row.children.map((cell) => inlineContent(cell.children, false, true))),
       })
     }
   }
