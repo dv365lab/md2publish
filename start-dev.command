@@ -4,7 +4,7 @@
 # Double-click this file in Finder to install dependencies on the first run,
 # start the development server, and open the app in the default browser.
 
-APP_URL='http://127.0.0.1:5173/'
+APP_URL='http://127.0.0.1:43187/'
 SCRIPT_DIR="${0:A:h}"
 
 pause_on_error() {
@@ -27,7 +27,7 @@ fi
 export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
 # If md2publish is already responding, only open it instead of starting a
-# second server. Check the page identity so another service on port 5173 is
+# second server. Check the page identity so another service on port 43187 is
 # never mistaken for this app.
 RUNNING_PAGE="$(/usr/bin/curl --fail --silent --max-time 2 "$APP_URL" 2>/dev/null)"
 if [[ "$RUNNING_PAGE" == *'<title>md2publish</title>'* ]]; then
@@ -35,8 +35,8 @@ if [[ "$RUNNING_PAGE" == *'<title>md2publish</title>'* ]]; then
   exit 0
 fi
 
-if /usr/sbin/lsof -n -P -iTCP:5173 -sTCP:LISTEN >/dev/null 2>&1; then
-  echo '[错误] 端口 5173 已被其他程序占用。'
+if /usr/sbin/lsof -n -P -iTCP:43187 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo '[错误] 端口 43187 已被其他程序占用。'
   echo '请关闭占用该端口的程序后，再重新双击 start-dev.command。'
   pause_on_error
   exit 1

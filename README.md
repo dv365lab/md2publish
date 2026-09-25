@@ -40,7 +40,7 @@ npm -v
 双击项目目录里的 `start-dev.bat`（或桌面上的「md2publish」快捷方式）即可：
 
 - 首次运行会自动执行 `npm install` 安装依赖
-- 之后会启动开发服务器，并在就绪后**自动打开浏览器**访问 `http://127.0.0.1:5173/`
+- 之后会启动开发服务器，并在就绪后**自动打开浏览器**访问 `http://127.0.0.1:43187/`
 - 如果服务器已经在运行，再次双击只会打开浏览器，不会重复启动
 - 关闭弹出的「md2publish dev server」命令行窗口（或在其中按 `Ctrl+C`）即可停止服务
 
@@ -70,7 +70,7 @@ npm run dev
 5. 使用最新版 Chrome 或 Edge 打开终端显示的地址，通常是：
 
 ```text
-http://127.0.0.1:5173/
+http://127.0.0.1:43187/
 ```
 
 > ⚠️ 在 Windows 上请始终使用 `127.0.0.1` 而不是 `localhost`：`localhost` 会优先解析为 IPv6 回环地址 `::1`，而部分 Windows 机器的防火墙会拦截 IPv6 回环连接，导致 Vite 终端显示 `ready` 但浏览器报 `ERR_CONNECTION_REFUSED`。项目已在 `vite.config.ts` 中通过 `server.host: '127.0.0.1'` 将开发服务器固定绑定到 IPv4 回环地址。
@@ -78,7 +78,7 @@ http://127.0.0.1:5173/
 6. 粘贴或导入 Markdown，点击知识星球版的「复制文章」，等待页面提示表格已经转为高清图片，然后粘贴到知识星球编辑器。微信公众号使用右侧的「复制」按钮。
 7. 使用结束后回到 PowerShell，按 `Ctrl+C` 停止服务。
 
-项目固定使用 `5173` 端口。如果该端口被其他程序占用，请先关闭占用程序再重新启动。
+项目固定使用较少见的 `43187` 端口。如果该端口被其他程序占用，启动器会提示冲突，不会打开其他应用的页面。
 
 ## macOS 使用方法
 
@@ -87,7 +87,7 @@ http://127.0.0.1:5173/
 双击项目目录里的 `start-dev.command` 即可：
 
 - 首次运行会自动执行 `npm install` 安装依赖
-- 之后会启动开发服务器，并在就绪后**自动打开浏览器**访问 `http://127.0.0.1:5173/`
+- 之后会启动开发服务器，并在就绪后**自动打开浏览器**访问 `http://127.0.0.1:43187/`
 - 如果服务器已经在运行，再次双击只会打开浏览器，不会重复启动
 - 关闭弹出的“终端”窗口（或在其中按 `Control+C`）即可停止服务
 
@@ -128,13 +128,13 @@ npm run dev
 5. 使用最新版 Chrome 打开终端显示的地址，通常是：
 
 ```text
-http://127.0.0.1:5173/
+http://127.0.0.1:43187/
 ```
 
 也可以在终端中执行：
 
 ```bash
-open http://127.0.0.1:5173/
+open http://127.0.0.1:43187/
 ```
 
 6. 粘贴或导入 Markdown，点击知识星球版的「复制文章」，等待表格图片生成和复制完成，再粘贴到知识星球编辑器。微信公众号使用右侧的「复制」按钮。
@@ -146,20 +146,20 @@ macOS 建议优先使用最新版 Chrome。Safari 可以打开和预览页面，
 
 ### Windows 上 Vite 显示 ready 但浏览器打不开页面
 
-症状：PowerShell 显示 `VITE ready` 和 `Local: http://localhost:5173/`，但浏览器报 `ERR_CONNECTION_REFUSED` 或 `EACCES`。
+症状：PowerShell 显示 `VITE ready` 和 `Local: http://localhost:43187/`，但浏览器报 `ERR_CONNECTION_REFUSED` 或 `EACCES`。
 
 原因：`localhost` 优先解析为 IPv6 回环地址 `::1`，而部分 Windows 机器的防火墙会拦截 IPv6 回环连接。项目已固定 dev server 绑定到 `127.0.0.1`（见 `vite.config.ts` 的 `server.host`），但**浏览器地址栏仍可能访问 `localhost`（`::1`）而被拦截**。
 
 解决：
 
-1. 始终使用终端输出的完整地址 `http://127.0.0.1:5173/` 访问，不要手动输入 `localhost`
+1. 始终使用终端输出的完整地址 `http://127.0.0.1:43187/` 访问，不要手动输入 `localhost`
 2. 如果仍打不开，检查是否有残留的旧 dev server 进程占用端口：
 
 ```powershell
-Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -ge 5100 -and $_.LocalPort -le 5200 }
+Get-NetTCPConnection -State Listen -LocalPort 43187
 ```
 
-找到占用 `5173` 的 `OwningProcess` 后结束该进程（`Stop-Process -Id <进程号> -Force`），再重新 `npm run dev`
+找到占用 `43187` 的 `OwningProcess` 后确认它属于哪个程序；关闭该程序后重新 `npm run dev`。
 
 3. 快速判断本机 IPv6 回环是否被拦截：
 
@@ -171,7 +171,7 @@ node -e "require('net').connect(0,'::1',()=>process.exit(0)).on('error',e=>{cons
 
 ### 端口被占用
 
-一键启动器固定使用 `5173` 端口。如果 md2publish 已经在该端口运行，再次启动只会打开现有页面；如果浏览器打开的不是 md2publish，或终端显示端口占用错误，请关闭占用该端口的其他程序后重试。
+一键启动器固定使用 `43187` 端口。如果 md2publish 已经在该端口运行，再次启动只会打开现有页面；如果端口被其他程序占用，启动器会提示错误，请关闭占用程序后重试。
 
 ## 构建与测试
 
