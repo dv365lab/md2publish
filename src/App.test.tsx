@@ -173,6 +173,43 @@ describe('App immersive preview', () => {
     expect(Object.keys(payload.items)).toEqual(['text/html', 'text/plain'])
   })
 
+  it('copies each wechat list label and its explanation in one paragraph', async () => {
+    const markdown = '- **DRAM**：说明它仍然属于动态存储器。\n- **Synchronous**：说明它的相关接口操作与时钟建立了规定的时序关系。'
+    const labels = ['DRAM', 'Synchronous']
+    const expectedItems = [
+      'DRAM：说明它仍然属于动态存储器。',
+      'Synchronous：说明它的相关接口操作与时钟建立了规定的时序关系。',
+    ]
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+
+    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    const previewItems = within(screen.getByTestId('wechat-output')).getAllByRole('listitem')
+    expect(previewItems.map((item) => item.textContent)).toEqual(expectedItems)
+    previewItems.forEach((item, index) => {
+      expect(item.querySelector('strong')).toHaveTextContent(labels[index])
+      expect(item.querySelector('br')).toBeNull()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+    const payload = (navigator.clipboard.write as ReturnType<typeof vi.fn>).mock.calls[0][0][0] as ClipboardItemMock
+    const html = await readBlobText(payload.items['text/html'])
+    const copiedDocument = new DOMParser().parseFromString(html, 'text/html')
+    const copiedItems = copiedDocument.querySelectorAll('li')
+    expect(copiedItems).toHaveLength(2)
+    copiedItems.forEach((item, index) => {
+      const paragraphs = item.querySelectorAll(':scope > p')
+      expect(paragraphs).toHaveLength(1)
+      expect(paragraphs[0].textContent).toBe(expectedItems[index])
+      expect(paragraphs[0].querySelector('strong')?.textContent).toBe(labels[index])
+      expect(item.textContent).toBe(expectedItems[index])
+      expect(item.querySelector('br')).toBeNull()
+    })
+    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+  })
+
   it('copies wechat tables as inline images while keeping plain text fallback', async () => {
     render(<App />)
 

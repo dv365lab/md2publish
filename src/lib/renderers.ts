@@ -447,9 +447,13 @@ const renderListHtml = (
             : renderZsxqClipboardQuote(quote, '8px 0')
         }
         const inlineHtml = renderInlineHtml(child.content)
-        const paragraphHtml = platform === 'zsxq'
-          ? `<span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${inlineHtml}</span>`
-          : inlineHtml
+        if (platform === 'wechat') {
+          // Give the paste importer one paragraph for the whole inline run,
+          // so a bold label and its following punctuation stay together.
+          const margin = blockIndex === 0 ? '0' : '8px 0 0'
+          return `<p style="margin:${margin};padding:0;line-height:inherit;">${inlineHtml}</p>`
+        }
+        const paragraphHtml = `<span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${inlineHtml}</span>`
         return blockIndex === 0 ? paragraphHtml : `<p style="margin:8px 0 0;">${paragraphHtml}</p>`
       }).join('')
       return `<li${itemStyleAttribute}>${contentHtml}</li>`

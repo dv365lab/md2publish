@@ -55,6 +55,41 @@ describe('quotes inside list items', () => {
 })
 
 describe('inline formatting regressions', () => {
+  it.each(['-', '3.'])(
+    'keeps bold labels and following punctuation in one wechat list paragraph (%s)',
+    (marker) => {
+      const source = `${marker} **DRAM**：说明它仍然属于动态存储器。\n${marker} **Synchronous**: 说明它的相关接口操作与时钟建立了规定的时序关系。`
+      const container = document.createElement('div')
+      container.innerHTML = renderClipboardHtml(source, 'wechat')
+
+      const items = Array.from(container.querySelectorAll('li'))
+      expect(items).toHaveLength(2)
+      for (const [index, label] of ['DRAM', 'Synchronous'].entries()) {
+        const paragraph = items[index].querySelector<HTMLParagraphElement>(':scope > p')
+        expect(paragraph).not.toBeNull()
+        expect(items[index].children).toHaveLength(1)
+        expect(paragraph?.querySelector('strong')?.textContent).toBe(label)
+        expect(paragraph?.textContent).toBe(items[index].textContent)
+        expect(paragraph?.querySelector('strong')?.nextSibling?.textContent).toMatch(/^[：:]/u)
+        expect(paragraph?.querySelector('br, p, div')).toBeNull()
+        expect(paragraph?.style.margin).toBe('0px')
+      }
+    },
+  )
+
+  it('keeps wechat list paragraphs, quotes and nested lists as separate ordered blocks', () => {
+    const source = '- **结果**：第一段说明。\n\n  > 引用内容。\n\n  - **子项**：子项说明。\n\n  **补充**：第二段说明。'
+    const container = document.createElement('div')
+    container.innerHTML = renderClipboardHtml(source, 'wechat')
+    const item = container.querySelector('li')!
+
+    expect(Array.from(item.children, (child) => child.tagName)).toEqual(['P', 'BLOCKQUOTE', 'UL', 'P'])
+    expect(item.children[0].textContent).toBe('结果：第一段说明。')
+    expect(item.children[1].textContent).toBe('引用内容。')
+    expect(item.children[2].querySelector('li > p')?.textContent).toBe('子项：子项说明。')
+    expect(item.children[3].textContent).toBe('补充：第二段说明。')
+  })
+
   it.each(['zsxq', 'wechat'] as const)('repairs bold inside link labels without breaking %s links', (platform) => {
     const container = document.createElement('div')
     container.innerHTML = renderClipboardHtml(
@@ -348,7 +383,7 @@ console.log('hello')
       expect(result).toContain(
         platform === 'zsxq'
           ? '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a></span><ul'
-          : '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a><ul',
+          : '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a></p><ul',
       )
       expect(result).toContain(
         '<a href="#1-什么是-ace">1. 什么是 ACE？</a>',
