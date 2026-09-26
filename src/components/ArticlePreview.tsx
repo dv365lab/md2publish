@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import type { InlineContent, ListBlock } from '../lib/markdown'
-import { headingAppearanceForPlatform, type Platform, type RenderNode } from '../lib/renderers'
+import { headingAppearanceForPlatform, normalizeQuote, type Platform, type RenderNode } from '../lib/renderers'
 import { getColumnWidth, isIdColumn, type TableColumnWidths } from '../lib/tableColumns'
 
 type ArticlePreviewProps = {
@@ -25,17 +25,37 @@ const renderInlineContent = (content: InlineContent[]): ReactNode[] =>
       : <span key={index}>{value}</span>
   })
 
-const renderList = (list: ListBlock, key: string) => {
+const renderQuote = (node: Extract<RenderNode, { type: 'quote' }>, platform: Platform, key: string) => (
+  <blockquote key={key} className="article-block article-quote">
+    {node.calloutLabel ? (
+      <strong className="article-callout-label">{node.calloutLabel}</strong>
+    ) : null}
+    {node.lines.map((line, lineIndex) => (
+      <p key={`${key}-${lineIndex}`}>
+        {platform === 'wechat' && !node.calloutLabel ? '引用：' : ''}
+        {node.content?.[lineIndex] ? renderInlineContent(node.content[lineIndex]) : line}
+      </p>
+    ))}
+  </blockquote>
+)
+
+const renderList = (list: ListBlock, key: string, platform: Platform): ReactNode => {
   const Tag = list.ordered ? 'ol' : 'ul'
 
   return (
     <Tag key={key} className="article-list" start={list.ordered ? list.start : undefined}>
       {list.items.map((item, itemIndex) => (
         <li key={`${key}-${itemIndex}`}>
-          {renderInlineContent(item.content)}
-          {item.children.map((child, childIndex) =>
-            renderList(child, `${key}-${itemIndex}-child-${childIndex}`),
-          )}
+          {item.blocks.map((child, childIndex) => {
+            const childKey = `${key}-${itemIndex}-child-${childIndex}`
+            if (child.type === 'list') return renderList(child, childKey, platform)
+            if (child.type === 'quote') {
+              return renderQuote({ type: 'quote', ...normalizeQuote(child.content) }, platform, childKey)
+            }
+            return childIndex === 0
+              ? <span key={childKey}>{renderInlineContent(child.content)}</span>
+              : <p key={childKey} className="article-paragraph">{renderInlineContent(child.content)}</p>
+          })}
         </li>
       ))}
     </Tag>
@@ -82,23 +102,11 @@ export function ArticlePreview({
           case 'list':
             return (
               <div key={key} className="article-block">
-                {renderList(node, key)}
+                {renderList(node, key, platform)}
               </div>
             )
           case 'quote':
-            return (
-              <blockquote key={key} className="article-block article-quote">
-                {node.calloutLabel ? (
-                  <strong className="article-callout-label">{node.calloutLabel}</strong>
-                ) : null}
-                {node.lines.map((line, lineIndex) => (
-                  <p key={`${key}-${lineIndex}`}>
-                    {platform === 'wechat' && !node.calloutLabel ? '引用：' : ''}
-                    {node.content?.[lineIndex] ? renderInlineContent(node.content[lineIndex]) : line}
-                  </p>
-                ))}
-              </blockquote>
-            )
+            return renderQuote(node, platform, key)
           case 'code':
             return (
               <div key={key} className="article-block article-code">

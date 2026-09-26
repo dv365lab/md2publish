@@ -7,6 +7,7 @@ import type {
   RootContent,
   List,
   ListItem,
+  Blockquote,
   PhrasingContent,
   InlineCode,
   Image,
@@ -23,9 +24,13 @@ export type InlineContent = (
 export type TableContent = { headerContent: InlineContent[][]; rowsContent: InlineContent[][][] }
 
 export type ListItemBlock = {
-  content: InlineContent[]
-  children: ListBlock[]
+  blocks: ListItemContent[]
 }
+
+export type ListItemContent =
+  | { type: 'paragraph'; content: InlineContent[] }
+  | { type: 'quote'; content: InlineContent[][] }
+  | ({ type: 'list' } & ListBlock)
 
 export type ListBlock = {
   ordered: boolean
@@ -310,12 +315,20 @@ const tableCellToText = (cell: TableCell) => joinInline(cell.children)
 const tableRowToText = (row: TableRow) => row.children.map(tableCellToText)
 
 const listItemToBlock = (item: ListItem): ListItemBlock => ({
-  content: item.children.flatMap((child) =>
-    child.type === 'paragraph' ? inlineContent(child.children) : [],
-  ),
-  children: item.children
-    .filter((child): child is List => child.type === 'list')
-    .map(listToBlock),
+  // Keep block boundaries and source order: a quote is a sibling of the
+  // item's paragraph, not inline text or a nested list.
+  blocks: item.children.flatMap<ListItemContent>((child) => {
+    switch (child.type) {
+      case 'paragraph':
+        return [{ type: 'paragraph', content: inlineContent(child.children) }]
+      case 'blockquote':
+        return [{ type: 'quote', content: quoteToContent(child) }]
+      case 'list':
+        return [{ type: 'list', ...listToBlock(child) }]
+      default:
+        return []
+    }
+  }),
 })
 
 const listToBlock = (list: List): ListBlock => ({
@@ -331,9 +344,9 @@ const inlineContentToText = (content: InlineContent[]) =>
     .trim()
 
 const listItemToText = (item: ListItemBlock): string => {
-  const parts = [inlineContentToText(item.content)]
-
-  for (const child of item.children) {
+  return item.blocks.map((child) => {
+    if (child.type === 'paragraph') return inlineContentToText(child.content)
+    if (child.type === 'quote') return child.content.map(inlineContentToText).join('\n')
     const nestedItems = child.items
       .map((nestedItem, index) => {
         const nestedText = listItemToText(nestedItem)
@@ -345,13 +358,30 @@ const listItemToText = (item: ListItemBlock): string => {
       })
       .filter(Boolean)
 
-    if (nestedItems.length > 0) {
-      parts.push(nestedItems.join('\n'))
-    }
-  }
-
-  return parts.filter(Boolean).join('\n').trim()
+    return nestedItems.join('\n')
+  }).filter(Boolean).join('\n').trim()
 }
+
+const quoteToContent = (quote: Blockquote): InlineContent[][] =>
+  quote.children.flatMap((child): InlineContent[][] => {
+    if (child.type === 'paragraph') {
+      return [inlineContent(child.children, false, true)]
+    }
+    if (child.type === 'blockquote') return quoteToContent(child)
+    if (child.type === 'list') {
+      const list = listToBlock(child)
+      const text = list.items
+        .map((item, itemIndex) => {
+          const text = listItemToText(item)
+          if (!text) return ''
+          return list.ordered ? `${list.start + itemIndex}. ${text}` : `- ${text}`
+        })
+        .filter(Boolean)
+        .join('\n')
+      return [[{ type: 'text', value: text }]]
+    }
+    return []
+  }).filter((parts) => parts.length > 0)
 
 export const parseMarkdown = (input: string): Block[] => {
   const tree = publishingTree(input)
@@ -380,30 +410,7 @@ export const parseMarkdown = (input: string): Block[] => {
     }
 
     if (current.type === 'blockquote') {
-      const content = current.children
-        .map((child) => {
-          if (child.type === 'paragraph') {
-            return inlineContent(child.children, false, true)
-          }
-
-          if (child.type === 'list') {
-            const list = listToBlock(child)
-            const text = list.items
-              .map((item, itemIndex) => {
-                const text = listItemToText(item)
-                if (!text) {
-                  return ''
-                }
-                return list.ordered ? `${list.start + itemIndex}. ${text}` : `- ${text}`
-              })
-              .filter(Boolean)
-              .join('\n')
-            return [{ type: 'text' as const, value: text }]
-          }
-
-          return []
-        })
-        .filter((parts) => parts.length > 0)
+      const content = quoteToContent(current)
       const lines = content.map(inlineContentToText)
 
       if (lines.length > 0) {

@@ -47,6 +47,66 @@ beforeEach(() => {
   })
 })
 
+describe('App list quote preservation', () => {
+  const ordinaryExample = '“负责验证 DDR 控制器，使用 UVM 搭建了环境并写了测试用例，发现了 Bug。”'
+  const starExample = '“针对支持低功耗切换的 DDR4 控制器项目（S），需在 3 周内攻坚高并发读写与自刷新切态下的数据一致性验证（T）；我主导扩展了 UVM Scoreboard 实现乱序读写重排校验，并编写定向并发压力序列注入跨 Bank 冲突与刷新中断（A）；最终提前 5 天实现功能覆盖率 100% 收敛，捕获 3 处在极端刷新反压下的数据错位 Bug（R）。”'
+  const markdown = `## 一句话对比示例
+
+- **普通描述（无结构）**:
+  > “负责验证 DDR 控制器，使用 UVM 搭建了环境并写了测试用例，发现了 Bug。”
+
+- **STAR 法则描述（结构化）**:
+  > “针对支持低功耗切换的 DDR4 控制器项目（**S**），需在 3 周内攻坚高并发读写与自刷新切态下的数据一致性验证（**T**）；我主导扩展了 UVM Scoreboard 实现乱序读写重排校验，并编写定向并发压力序列注入跨 Bank 冲突与刷新中断（**A**）；最终提前 5 天实现功能覆盖率 100% 收敛，捕获 3 处在极端刷新反压下的数据错位 Bug（**R**）。”`
+  const platforms = [
+    { platform: 'zsxq', previewIndex: 0, copyLabel: '复制文章' },
+    { platform: 'wechat', previewIndex: 1, copyLabel: '复制' },
+  ] as const
+
+  const enterExamples = () => {
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+  }
+
+  const expectCompleteExamples = (container: HTMLElement) => {
+    const text = container.textContent ?? ''
+    expect(text).toContain(ordinaryExample)
+    expect(text).toContain(starExample)
+    expect(text.indexOf(ordinaryExample)).toBeLessThan(text.indexOf(starExample))
+    const boldText = Array.from(container.querySelectorAll('strong'), (element) => element.textContent)
+    expect(boldText).toEqual(expect.arrayContaining(['普通描述（无结构）', 'STAR 法则描述（结构化）', 'S', 'T', 'A', 'R']))
+  }
+
+  it.each(platforms)('keeps complete quoted examples in the $platform preview', ({ platform }) => {
+    enterExamples()
+
+    expectCompleteExamples(screen.getByTestId(`${platform}-output`))
+  })
+
+  it.each(platforms)('keeps complete quoted examples in the $platform immersive preview', ({ previewIndex }) => {
+    enterExamples()
+    fireEvent.click(screen.getAllByText('整屏查看')[previewIndex])
+
+    expectCompleteExamples(within(screen.getByRole('dialog')).getByTestId('immersive-output'))
+  })
+
+  it.each(platforms)('copies complete quoted examples for $platform', async ({ platform, copyLabel }) => {
+    enterExamples()
+    fireEvent.click(screen.getByRole('button', { name: copyLabel }))
+
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+    const payload = (navigator.clipboard.write as ReturnType<typeof vi.fn>).mock.calls[0][0][0] as ClipboardItemMock
+    const html = await readBlobText(payload.items['text/html'])
+    const copiedDocument = new DOMParser().parseFromString(html, 'text/html')
+    expectCompleteExamples(copiedDocument.body)
+
+    if (platform === 'wechat') {
+      const text = await readBlobText(payload.items['text/plain'])
+      expect(text).toContain(ordinaryExample)
+      expect(text).toContain(starExample)
+    }
+  })
+})
+
 describe('App immersive preview', () => {
   it('opens zsxq immersive preview', () => {
     render(<App />)

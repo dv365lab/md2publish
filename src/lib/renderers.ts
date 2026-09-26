@@ -71,7 +71,7 @@ const sliceInline = (content: InlineContent[], start: number, end = Infinity) =>
   })
 }
 
-const normalizeQuote = (source: InlineContent[][]) => {
+export const normalizeQuote = (source: InlineContent[][]) => {
   const content = source.flatMap((paragraph) => {
     const text = paragraph.map(inlineValue).join('')
     let offset = 0
@@ -261,23 +261,29 @@ const inlineContentToText = (content: InlineContent[]) =>
     .join('')
     .trim()
 
-const listItemToPlainText = (item: ListItemBlock, depth: number): string => {
-  const lines = [inlineContentToText(item.content)]
-
-  for (const child of item.children) {
-    lines.push(
-      ...child.items.map((nestedItem, index) => {
-        const marker = child.ordered ? `${child.start + index}. ` : '- '
-        const nestedText = listItemToPlainText(nestedItem, depth + 1)
-        return `${'  '.repeat(depth + 1)}${marker}${nestedText}`
-      }),
-    )
-  }
-
-  return lines.filter(Boolean).join('\n')
+const listItemToPlainText = (item: ListItemBlock, depth: number, platform: Platform, clipboard: boolean): string => {
+  return item.blocks.map((child, blockIndex) => {
+    const indent = '  '.repeat(depth + 1)
+    if (child.type === 'paragraph') {
+      return `${blockIndex === 0 ? '' : indent}${inlineContentToText(child.content)}`
+    }
+    if (child.type === 'quote') {
+      const quote = normalizeQuote(child.content)
+      const prefix = platform === 'wechat' ? '引用：' : clipboard ? '' : '> '
+      return [quote.calloutLabel, ...quote.lines.map((line) => `${prefix}${line}`)]
+        .filter(Boolean)
+        .map((line, index) => `${blockIndex === 0 && index === 0 ? '' : indent}${line}`)
+        .join('\n')
+    }
+    return child.items.map((nestedItem, index) => {
+      const marker = child.ordered ? `${child.start + index}. ` : '- '
+      const nestedText = listItemToPlainText(nestedItem, depth + 1, platform, clipboard)
+      return `${indent}${marker}${nestedText}`
+    }).join('\n')
+  }).filter(Boolean).join('\n')
 }
 
-const renderPlainList = (node: Extract<RenderNode, { type: 'list' }>, platform: Platform) =>
+const renderPlainList = (node: Extract<RenderNode, { type: 'list' }>, platform: Platform, clipboard = false) =>
   node.items
     .map((item, index) => {
       const marker = node.ordered
@@ -285,7 +291,7 @@ const renderPlainList = (node: Extract<RenderNode, { type: 'list' }>, platform: 
         : platform === 'wechat'
           ? '• '
           : '- '
-      return `${marker}${listItemToPlainText(item, 0)}`
+      return `${marker}${listItemToPlainText(item, 0, platform, clipboard)}`
     })
     .join('\n')
 
@@ -350,7 +356,7 @@ export const renderClipboardArticle = (
       case 'paragraph':
         return node.text
       case 'list':
-        return renderPlainList(node, platform)
+        return renderPlainList(node, platform, true)
       case 'quote':
         return [
           node.calloutLabel,
@@ -430,14 +436,23 @@ const renderListHtml = (
   const itemStyleAttribute = ' style="margin:0;padding:0;line-height:1.75;"'
   const listItems = items
     .map((item) => {
-      const inlineHtml = renderInlineHtml(item.content)
-      const contentHtml = platform === 'zsxq'
-        ? `<span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${inlineHtml}</span>`
-        : inlineHtml
-
-      return `<li${itemStyleAttribute}>${contentHtml}${item.children
-          .map((child) => renderListHtml(child.ordered, child.start, child.items, platform, depth + 1))
-          .join('')}</li>`
+      const contentHtml = item.blocks.map((child, blockIndex) => {
+        if (child.type === 'list') {
+          return renderListHtml(child.ordered, child.start, child.items, platform, depth + 1)
+        }
+        if (child.type === 'quote') {
+          const quote = { type: 'quote' as const, ...normalizeQuote(child.content) }
+          return platform === 'wechat'
+            ? renderWechatClipboardQuote(quote)
+            : renderZsxqClipboardQuote(quote, '8px 0')
+        }
+        const inlineHtml = renderInlineHtml(child.content)
+        const paragraphHtml = platform === 'zsxq'
+          ? `<span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${inlineHtml}</span>`
+          : inlineHtml
+        return blockIndex === 0 ? paragraphHtml : `<p style="margin:8px 0 0;">${paragraphHtml}</p>`
+      }).join('')
+      return `<li${itemStyleAttribute}>${contentHtml}</li>`
     })
     .join('')
 

@@ -1,6 +1,59 @@
 import { describe, expect, it } from 'vitest'
 import { buildRenderNodes, renderArticle, renderClipboardArticle, renderClipboardHtml } from './renderers'
 
+describe('quotes inside list items', () => {
+  const source = `3. **STAR 法则描述（结构化）**:
+   > DDR4 控制器（**S**），3 周内完成验证（**T**）。
+   > UVM Scoreboard（**A**），覆盖率 **100%**，捕获 3 处 Bug（**R**）。
+
+   引用后的说明。
+
+   - 子列表
+     > **内层引用**与[资料](https://example.com)
+
+   最后说明。
+
+4. 下一项`
+
+  it.each(['zsxq', 'wechat'] as const)('preserves quote text and source order in every %s output', (platform) => {
+    const expected = [
+      'STAR 法则描述（结构化）', 'DDR4 控制器（S）', '3 周内完成验证（T）',
+      'UVM Scoreboard（A）', '覆盖率 100%', '捕获 3 处 Bug（R）',
+      '引用后的说明。', '子列表', '内层引用', '资料', '最后说明。', '下一项',
+    ]
+    const container = document.createElement('div')
+    container.innerHTML = renderClipboardHtml(source, platform)
+    for (const output of [renderArticle(source, platform), renderClipboardArticle(source, platform), container.textContent ?? '']) {
+      let previous = -1
+      for (const text of expected) {
+        expect(output).toContain(text)
+        const position = output.indexOf(text)
+        expect(position).toBeGreaterThan(previous)
+        expect(output.indexOf(text, position + text.length)).toBe(-1)
+        previous = position
+      }
+    }
+    expect(container.querySelector('ol')?.getAttribute('start')).toBe('3')
+    expect(container.querySelectorAll('li')).toHaveLength(3)
+    expect(Array.from(container.querySelectorAll('strong'), (node) => node.textContent)).toEqual(
+      expect.arrayContaining(['S', 'T', 'A', '100%', 'R', '内层引用']),
+    )
+  })
+
+  it.each(['zsxq', 'wechat'] as const)('keeps a quote-only item and nested quote continuations for %s', (platform) => {
+    const markdown = '- > **第一段**\n  >\n  > 第二段\n  >\n  > > **嵌套引用**'
+    const html = renderClipboardHtml(markdown, platform)
+    const container = document.createElement('div')
+    container.innerHTML = html
+    expect(container.textContent).toContain('第一段')
+    expect(container.textContent).toContain('第二段')
+    expect(container.textContent).toContain('嵌套引用')
+    expect(Array.from(container.querySelectorAll('strong'), (node) => node.textContent)).toEqual(
+      expect.arrayContaining(['第一段', '嵌套引用']),
+    )
+  })
+})
+
 describe('inline formatting regressions', () => {
   it.each(['zsxq', 'wechat'] as const)('repairs bold inside link labels without breaking %s links', (platform) => {
     const container = document.createElement('div')
