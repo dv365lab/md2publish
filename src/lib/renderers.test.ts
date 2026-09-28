@@ -1,6 +1,99 @@
 import { describe, expect, it } from 'vitest'
 import { buildRenderNodes, renderArticle, renderClipboardArticle, renderClipboardHtml } from './renderers'
 
+describe('remove every hyperlink from published content', () => {
+  const source = `前文 [community.cadence](https://community.cadence.com/example) 后文。
+
+| 维度 | ACE |
+| --- | --- |
+| 协议形态 | 保留说明 [jia](https://jia.je/kb/hardware/cache_coherence_protocol.html) |
+
+- [独立链接](https://example.com/only)
+- 保留列表项
+
+> 引用 [来源资料](https://example.com/source)
+
+\`[代码链接](https://example.com/code)\`
+
+![配图](https://example.com/image.png)`
+
+  it.each(['zsxq', 'wechat'] as const)('deletes labels and targets without leaving empty list items in %s', (platform) => {
+    const nodes = buildRenderNodes(source, platform)
+    const html = renderClipboardHtml(source, platform)
+    for (const output of [JSON.stringify(nodes), renderArticle(source, platform), renderClipboardArticle(source, platform), html]) {
+      for (const removed of ['community.cadence', 'jia', '独立链接', '来源资料', 'cache_coherence_protocol.html']) {
+        expect(output).not.toContain(removed)
+      }
+      for (const kept of ['前文', '后文', '协议形态', '保留说明', '保留列表项', '引用', '代码链接', '配图']) {
+        expect(output).toContain(kept)
+      }
+    }
+    expect(html).not.toContain('<a ')
+    expect(nodes.find((node) => node.type === 'list')).toMatchObject({
+      items: [{ blocks: [{ type: 'paragraph', content: [{ type: 'text', value: '保留列表项' }] }] }],
+    })
+    expect(nodes.find((node) => node.type === 'table')).toMatchObject({ rows: [['协议形态', '保留说明']] })
+  })
+
+  it.each(['zsxq', 'wechat'] as const)('removes autolinks and link-only ordered items while keeping a linked image in %s', (platform) => {
+    const source = `正文 <https://example.com/autolink> 继续。
+
+3. [删除项](#target)
+4. 保留项
+
+[![架构图](https://example.com/diagram.png)](https://example.com/viewer)`
+    const nodes = buildRenderNodes(source, platform)
+    const html = renderClipboardHtml(source, platform)
+
+    expect(nodes[0]).toMatchObject({ type: 'paragraph', text: '正文  继续。' })
+    expect(nodes[1]).toMatchObject({ type: 'list', ordered: true, start: 4, items: [{ blocks: [{ type: 'paragraph' }] }] })
+    expect(nodes[2]).toMatchObject({ type: 'image', alt: '架构图', url: 'https://example.com/diagram.png' })
+    expect(html).toContain('alt="架构图"')
+    expect(html).not.toContain('href=')
+    expect(html).not.toContain('删除项')
+    expect(html).not.toContain('autolink')
+  })
+})
+
+describe('web citation removal', () => {
+  const source = `正文 [资料](https://example.com/reference) 后文。
+
+| 维度 | ACE | CHI |
+| --- | --- | --- |
+| 协议形态 | 等信号 [jia](https://jia.je/kb/hardware/cache_coherence_protocol.html) | 分层结构 [community.cadence](https://community.cadence.com/example) |
+
+- 阅读 [其他资料](https://example.com/other)
+
+> 引用 [来源](https://example.com/source)`
+
+  it.each(['zsxq', 'wechat'] as const)('omits citation labels and web addresses in %s outputs', (platform) => {
+    const nodes = buildRenderNodes(source, platform)
+    const copied = document.createElement('div')
+    copied.innerHTML = renderClipboardHtml(source, platform)
+    const visibleOutputs = [
+      renderArticle(source, platform),
+      renderClipboardArticle(source, platform),
+      copied.textContent ?? '',
+    ]
+
+    for (const output of visibleOutputs) {
+      for (const removed of ['资料', 'jia', 'community.cadence', '其他资料', '来源']) {
+        expect(output).not.toContain(removed)
+      }
+      expect(output).not.toMatch(/https?:\/\//u)
+      expect(output).not.toContain('（https')
+      for (const kept of ['正文', '后文', '协议形态', '等信号', '分层结构', '阅读', '引用']) {
+        expect(output).toContain(kept)
+      }
+    }
+    expect(copied.querySelector('a')).toBeNull()
+    expect(nodes.find((node) => node.type === 'table')).toMatchObject({
+      rows: [['协议形态', '等信号', '分层结构']],
+    })
+    expect(nodes.find((node) => node.type === 'paragraph')).toMatchObject({ text: '正文  后文。' })
+  })
+})
+
 describe('uploaded attachment link filtering', () => {
   const url = 'https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/test/paper.pdf?Signature=test-signature&Expires=123'
   const citation = `[上传附件引用](${url})`
@@ -28,7 +121,8 @@ describe('uploaded attachment link filtering', () => {
       expect(output).not.toContain('上传附件引用')
       expect(output).not.toContain('ppl-ai-file-upload')
       expect(output).not.toContain('test-signature')
-      for (const text of ['标题', '前文', '重点', '后文', '正常资料', 'https://example.com/paper.pdf', '列表正文', '引用正文', '字段', '表格正文', '保留内容', '加粗正文']) {
+      expect(output).not.toContain('正常资料')
+      for (const text of ['标题', '前文', '重点', '后文', '列表正文', '引用正文', '字段', '表格正文', '保留内容', '加粗正文']) {
         expect(output).toContain(text)
       }
     }
@@ -42,24 +136,27 @@ describe('uploaded attachment link filtering', () => {
     expect(renderClipboardHtml(source, platform)).not.toContain('ppl-ai-file-upload')
   })
 
-  it.each(['zsxq', 'wechat'] as const)('preserves ordinary links, code and images in %s output', (platform) => {
+  it.each(['zsxq', 'wechat'] as const)('removes links at other hosts while retaining code and images in %s output', (platform) => {
     const normalUrls = [
       'https://example.com/?source=ppl-ai-file-upload.s3.amazonaws.com',
       'https://other-bucket.s3.amazonaws.com/paper.pdf?Signature=test',
       'https://ppl-ai-file-upload.s3.amazonaws.com.example.com/paper.pdf',
       '/files/ppl-ai-file-upload.s3.amazonaws.com.pdf',
     ]
-    const source = normalUrls.map((target) => `[ppl-ai-file-upload.s3.amazonaws](${target})`).join('\n\n')
-    for (const output of outputs(source, platform)) {
-      for (const target of normalUrls) expect(output).toContain(target)
-      expect(output).toContain('ppl-ai-file-upload.s3.amazonaws')
+    const source = normalUrls.map((target, index) => `- [正常链接${index + 1}](${target})`).join('\n')
+    const nodes = buildRenderNodes(source, platform)
+    const html = renderClipboardHtml(source, platform)
+    expect(nodes).toEqual([])
+    expect(html).toBe('')
+    for (const output of [renderArticle(source, platform), renderClipboardArticle(source, platform)]) {
+      expect(output).toBe('')
     }
 
     const literals = `\`${citation}\`\n\n\`\`\`markdown\n${citation}\n\`\`\`\n\n![原图片](${url})`
-    const nodes = buildRenderNodes(literals, platform)
-    expect(nodes[0]).toMatchObject({ type: 'paragraph', text: `“${citation}”` })
-    expect(nodes[1]).toMatchObject({ type: 'code', code: citation })
-    expect(nodes[2]).toMatchObject({ type: 'image', alt: '原图片', url })
+    const literalNodes = buildRenderNodes(literals, platform)
+    expect(literalNodes[0]).toMatchObject({ type: 'paragraph', text: `“${citation}”` })
+    expect(literalNodes[1]).toMatchObject({ type: 'code', code: citation })
+    expect(literalNodes[2]).toMatchObject({ type: 'image', alt: '原图片', url })
   })
 })
 
@@ -81,7 +178,7 @@ describe('quotes inside list items', () => {
     const expected = [
       'STAR 法则描述（结构化）', 'DDR4 控制器（S）', '3 周内完成验证（T）',
       'UVM Scoreboard（A）', '覆盖率 100%', '捕获 3 处 Bug（R）',
-      '引用后的说明。', '子列表', '内层引用', '资料', '最后说明。', '下一项',
+      '引用后的说明。', '子列表', '内层引用', '最后说明。', '下一项',
     ]
     const container = document.createElement('div')
     container.innerHTML = renderClipboardHtml(source, platform)
@@ -97,6 +194,7 @@ describe('quotes inside list items', () => {
     }
     expect(container.querySelector('ol')?.getAttribute('start')).toBe('3')
     expect(container.querySelectorAll('li')).toHaveLength(3)
+    expect(container.textContent).not.toContain('资料')
     expect(Array.from(container.querySelectorAll('strong'), (node) => node.textContent)).toEqual(
       expect.arrayContaining(['S', 'T', 'A', '100%', 'R', '内层引用']),
     )
@@ -152,17 +250,16 @@ describe('inline formatting regressions', () => {
     expect(item.children[3].textContent).toBe('补充：第二段说明。')
   })
 
-  it.each(['zsxq', 'wechat'] as const)('repairs bold inside link labels without breaking %s links', (platform) => {
+  it.each(['zsxq', 'wechat'] as const)('removes links with bold labels without changing nearby %s text', (platform) => {
     const container = document.createElement('div')
     container.innerHTML = renderClipboardHtml(
-      '- [阅读**上行（USP） **朝向根侧，两个**下行（DP）**内容](https://example.com)', platform,
+      '- 前文 [阅读**上行（USP） **朝向根侧，两个**下行（DP）**内容](https://example.com) 后文', platform,
     )
-    const link = container.querySelector('a')
-    expect(container.querySelectorAll('a')).toHaveLength(1)
-    expect(link?.getAttribute('href')).toBe('https://example.com')
-    expect(link?.textContent).toBe('阅读上行（USP） 朝向根侧，两个下行（DP）内容')
-    expect(container.textContent).toBe(link?.textContent)
-    expect(Array.from(link!.querySelectorAll('strong'), (node) => node.textContent)).toEqual(['上行（USP）', '下行（DP）'])
+    expect(container.querySelector('a, strong')).toBeNull()
+    expect(container.textContent).toContain('前文')
+    expect(container.textContent).toContain('后文')
+    expect(container.textContent).not.toContain('上行（USP）')
+    expect(container.textContent).not.toContain('下行（DP）')
   })
 
   it.each((['zsxq', 'wechat'] as const).flatMap((platform) => [
@@ -196,15 +293,16 @@ describe('inline formatting regressions', () => {
     expect(renderClipboardArticle(source, platform)).not.toContain('**')
   })
 
-  it('keeps link targets and mixed bold labels intact', () => {
-    const source = '- [阅读**重点**内容](https://example.com)\n\n<https://example.com/a[^1]>'
+  it('removes hyperlink text while leaving inline code literal', () => {
+    const source = '- 前文 [阅读**重点**内容](https://example.com) 后文\n\n`[代码链接](https://example.com/a)`'
     const container = document.createElement('div')
     container.innerHTML = renderClipboardHtml(source, 'wechat')
 
-    expect(container.querySelector('a')?.textContent).toBe('阅读重点内容')
-    expect(container.querySelector('a strong')?.textContent).toBe('重点')
-    expect(renderClipboardArticle(source, 'wechat')).toContain('阅读重点内容（https://example.com）')
-    expect(container.textContent).toContain('https://example.com/a[^1]')
+    expect(container.querySelector('a, strong')).toBeNull()
+    expect(renderClipboardArticle(source, 'wechat')).not.toContain('阅读重点内容')
+    expect(container.textContent).toContain('前文')
+    expect(container.textContent).toContain('后文')
+    expect(container.textContent).toContain('[代码链接](https://example.com/a)')
   })
 
   it('filters defined footnotes without exposing their definitions', () => {
@@ -430,7 +528,7 @@ console.log('hello')
   })
 
   it.each(['zsxq', 'wechat'] as const)(
-    'preserves nested navigation hierarchy and internal links in copied html for %s',
+    'removes link-only nested navigation lists from copied %s html',
     (platform) => {
       const markdown = `## 导航栏
 
@@ -441,16 +539,10 @@ console.log('hello')
 
       const result = renderClipboardHtml(markdown, platform)
 
-      expect(result.match(/<ul/g)).toHaveLength(4)
-      expect(result).toContain(
-        platform === 'zsxq'
-          ? '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a></span><ul'
-          : '<a href="#第一篇精要入门与综合进阶">第一篇：精要入门与综合进阶</a></p><ul',
-      )
-      expect(result).toContain(
-        '<a href="#1-什么是-ace">1. 什么是 ACE？</a>',
-      )
-      expect(result).not.toContain('（#第一篇精要入门与综合进阶）')
+      expect(result).toContain('导航栏')
+      expect(result).not.toContain('<ul')
+      expect(result).not.toContain('<a ')
+      expect(result).not.toContain('第一篇：精要入门与综合进阶')
     },
   )
 

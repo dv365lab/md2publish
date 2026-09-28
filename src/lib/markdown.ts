@@ -189,7 +189,7 @@ const joinInline = (nodes: PhrasingContent[] = []): string =>
         case 'break':
           return '\n'
         case 'link':
-          return `${joinInline(node.children)}（${node.url}）`
+          return joinInline(node.children)
         case 'image':
           return imageToText(node as Image)
         default:
@@ -256,7 +256,6 @@ const inlineContent = (
       case 'link':
         if (linksAsText) {
           appendContent(inlineContent(node.children, bold, true))
-          appendText(`（${node.url}）`)
         } else {
           content.push({ type: 'link', text: joinInline(node.children), url: node.url, content: inlineContent(node.children, bold, true) })
         }
@@ -319,27 +318,39 @@ const listItemToBlock = (item: ListItem): ListItemBlock => ({
   // item's paragraph, not inline text or a nested list.
   blocks: item.children.flatMap<ListItemContent>((child) => {
     switch (child.type) {
-      case 'paragraph':
-        return [{ type: 'paragraph', content: inlineContent(child.children) }]
-      case 'blockquote':
-        return [{ type: 'quote', content: quoteToContent(child) }]
-      case 'list':
-        return [{ type: 'list', ...listToBlock(child) }]
+      case 'paragraph': {
+        const content = inlineContent(child.children)
+        return content.some((part) => part.type === 'link' || part.value.trim())
+          ? [{ type: 'paragraph', content }]
+          : []
+      }
+      case 'blockquote': {
+        const content = quoteToContent(child)
+        return content.length ? [{ type: 'quote', content }] : []
+      }
+      case 'list': {
+        const nested = listToBlock(child)
+        return nested.items.length ? [{ type: 'list', ...nested }] : []
+      }
       default:
         return []
     }
   }),
 })
 
-const listToBlock = (list: List): ListBlock => ({
-  ordered: Boolean(list.ordered),
-  start: list.start ?? 1,
-  items: list.children.map(listItemToBlock),
-})
+const listToBlock = (list: List): ListBlock => {
+  const items = list.children.map(listItemToBlock)
+  const firstVisible = items.findIndex((item) => item.blocks.length > 0)
+  return {
+    ordered: Boolean(list.ordered),
+    start: (list.start ?? 1) + Math.max(0, firstVisible),
+    items: items.filter((item) => item.blocks.length > 0),
+  }
+}
 
 const inlineContentToText = (content: InlineContent[]) =>
   content
-    .map((part) => (part.type === 'link' ? `${part.text}（${part.url}）` : part.value))
+    .map((part) => (part.type === 'link' ? part.text : part.value))
     .join('')
     .trim()
 
@@ -386,18 +397,13 @@ const quoteToContent = (quote: Blockquote): InlineContent[][] =>
 export const parseMarkdown = (input: string): Block[] => {
   const tree = publishingTree(input)
 
-  // Filter attachment citations after inline repairs so every output uses the
-  // same cleaned tree, without changing source text, code examples or images.
+  // Remove hyperlinks after inline repairs so reparsing cannot restore them.
+  // Images inside linked images remain as images rather than disappearing.
   visit(tree, 'link', (node, index, parent) => {
     if (index === undefined || !parent) return
-    let url: URL
-    try {
-      url = new URL(node.url)
-    } catch {
-      return
-    }
-    if (!['http:', 'https:'].includes(url.protocol) || url.hostname !== 'ppl-ai-file-upload.s3.amazonaws.com') return
-    parent.children.splice(index, 1)
+    const images: Image[] = []
+    visit(node, 'image', (image) => { images.push(image) })
+    parent.children.splice(index, 1, ...images)
     return [SKIP, index]
   })
 

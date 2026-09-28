@@ -115,8 +115,8 @@ describe('App attachment link removal', () => {
   const expectPublishedOutput = (output: string) => {
     expect(output).toContain('正文之前')
     expect(output).toContain('正文之后。')
-    expect(output).toContain('正常参考链接')
-    expect(output).toContain(normalUrl)
+    expect(output).not.toContain('正常参考链接')
+    expect(output).not.toContain(normalUrl)
     expect(output).not.toContain('待删除附件')
     expect(output).not.toContain('ppl-ai-file-upload.s3.amazonaws.com')
     expect(output).not.toContain('test-signature')
@@ -143,6 +143,37 @@ describe('App attachment link removal', () => {
     for (const blob of Object.values(payload.items)) {
       expectPublishedOutput(await readBlobText(blob))
     }
+    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+  })
+})
+
+describe('App web citation removal', () => {
+  const markdown = `| 维度 | ACE | CHI |
+| --- | --- | --- |
+| 协议形态 | 等信号 [jia](https://jia.je/kb/hardware/cache_coherence_protocol.html) | 分层结构 [community.cadence](https://community.cadence.com/example) |`
+
+  it.each([
+    { platform: 'zsxq', previewIndex: 0, copyLabel: '复制文章' },
+    { platform: 'wechat', previewIndex: 1, copyLabel: '复制' },
+  ])('removes citation labels and web addresses from the $platform preview and table image source', async ({ platform, previewIndex, copyLabel }) => {
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+
+    const preview = screen.getByTestId(`${platform}-output`)
+    expect(preview).toHaveTextContent('等信号')
+    expect(preview).toHaveTextContent('分层结构')
+    expect(preview.textContent).not.toContain('jia')
+    expect(preview.textContent).not.toContain('community.cadence')
+    expect(preview.textContent).not.toContain('https://')
+
+    fireEvent.click(screen.getAllByText('整屏查看')[previewIndex])
+    const dialog = within(screen.getByRole('dialog'))
+    expect(dialog.getByTestId('immersive-output').textContent).not.toContain('https://')
+    expect(dialog.getByTestId('immersive-output').textContent).not.toContain('community.cadence')
+    fireEvent.click(dialog.getByRole('button', { name: copyLabel }))
+    await waitFor(() => expect(renderTablesAsDataUrls).toHaveBeenCalledTimes(1))
+    const tables = (renderTablesAsDataUrls as ReturnType<typeof vi.fn>).mock.calls[0][0] as { rows: string[][] }[]
+    expect(tables[0].rows).toEqual([['协议形态', '等信号', '分层结构']])
     expect(screen.getByRole('textbox')).toHaveValue(markdown)
   })
 })

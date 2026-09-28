@@ -162,7 +162,7 @@ describe('ArticlePreview', () => {
   })
 
   it.each(['zsxq', 'wechat'] as const)(
-    'preserves nested navigation hierarchy and clickable links for %s',
+    'omits link-only nested navigation from the %s preview',
     (platform) => {
       const nodes = buildRenderNodes(
         `## 导航栏
@@ -176,16 +176,9 @@ describe('ArticlePreview', () => {
 
       render(<ArticlePreview nodes={nodes} platform={platform} />)
 
-      const lists = screen.getAllByRole('list')
-      expect(lists).toHaveLength(4)
-      expect(screen.getByRole('link', { name: '第一篇：精要入门与综合进阶' })).toHaveAttribute(
-        'href',
-        '#第一篇精要入门与综合进阶',
-      )
-      expect(screen.getByRole('link', { name: '1. 什么是 ACE？' })).toHaveAttribute(
-        'href',
-        '#1-什么是-ace',
-      )
+      expect(screen.queryByRole('list')).toBeNull()
+      expect(screen.queryByRole('link')).toBeNull()
+      expect(screen.getByText(/导航栏/)).toBeTruthy()
       expect(screen.queryByText('（#第一篇精要入门与综合进阶）')).toBeNull()
     },
   )

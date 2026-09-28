@@ -256,7 +256,7 @@ const inlineContentToText = (content: InlineContent[]) =>
         return part.value
       }
 
-      return part.url.startsWith('#') ? part.text : `${part.text}（${part.url}）`
+      return part.text
     })
     .join('')
     .trim()
