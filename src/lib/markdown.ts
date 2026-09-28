@@ -385,6 +385,22 @@ const quoteToContent = (quote: Blockquote): InlineContent[][] =>
 
 export const parseMarkdown = (input: string): Block[] => {
   const tree = publishingTree(input)
+
+  // Filter attachment citations after inline repairs so every output uses the
+  // same cleaned tree, without changing source text, code examples or images.
+  visit(tree, 'link', (node, index, parent) => {
+    if (index === undefined || !parent) return
+    let url: URL
+    try {
+      url = new URL(node.url)
+    } catch {
+      return
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.hostname !== 'ppl-ai-file-upload.s3.amazonaws.com') return
+    parent.children.splice(index, 1)
+    return [SKIP, index]
+  })
+
   const blocks: Block[] = []
 
   for (const current of tree.children as RootContent[]) {

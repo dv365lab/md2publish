@@ -107,6 +107,46 @@ describe('App list quote preservation', () => {
   })
 })
 
+describe('App attachment link removal', () => {
+  const attachmentUrl = 'https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/test/paper.pdf?Signature=test-signature&Expires=123'
+  const normalUrl = 'https://example.com/reference'
+  const markdown = `正文之前 [待删除附件](${attachmentUrl}) 正文之后。\n\n[正常参考链接](${normalUrl})`
+
+  const expectPublishedOutput = (output: string) => {
+    expect(output).toContain('正文之前')
+    expect(output).toContain('正文之后。')
+    expect(output).toContain('正常参考链接')
+    expect(output).toContain(normalUrl)
+    expect(output).not.toContain('待删除附件')
+    expect(output).not.toContain('ppl-ai-file-upload.s3.amazonaws.com')
+    expect(output).not.toContain('test-signature')
+  }
+
+  it.each([
+    { platform: 'zsxq', previewIndex: 0, copyLabel: '复制文章' },
+    { platform: 'wechat', previewIndex: 1, copyLabel: '复制' },
+  ])('removes attachment links from $platform previews and copied content without changing the source', async ({ platform, previewIndex, copyLabel }) => {
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+
+    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    expectPublishedOutput(screen.getByTestId(`${platform}-output`).innerHTML)
+
+    fireEvent.click(screen.getAllByText('整屏查看')[previewIndex])
+    const dialog = within(screen.getByRole('dialog'))
+    expectPublishedOutput(dialog.getByTestId('immersive-output').innerHTML)
+    fireEvent.click(dialog.getByRole('button', { name: copyLabel }))
+
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+    const payload = (navigator.clipboard.write as ReturnType<typeof vi.fn>).mock.calls[0][0][0] as ClipboardItemMock
+    expect(Object.keys(payload.items)).toEqual(platform === 'wechat' ? ['text/html', 'text/plain'] : ['text/html'])
+    for (const blob of Object.values(payload.items)) {
+      expectPublishedOutput(await readBlobText(blob))
+    }
+    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+  })
+})
+
 describe('App immersive preview', () => {
   it('opens zsxq immersive preview', () => {
     render(<App />)

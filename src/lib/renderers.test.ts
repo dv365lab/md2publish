@@ -1,6 +1,68 @@
 import { describe, expect, it } from 'vitest'
 import { buildRenderNodes, renderArticle, renderClipboardArticle, renderClipboardHtml } from './renderers'
 
+describe('uploaded attachment link filtering', () => {
+  const url = 'https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/test/paper.pdf?Signature=test-signature&Expires=123'
+  const citation = `[上传附件引用](${url})`
+  const outputs = (source: string, platform: 'zsxq' | 'wechat') => [
+    JSON.stringify(buildRenderNodes(source, platform)),
+    renderArticle(source, platform),
+    renderClipboardArticle(source, platform),
+    renderClipboardHtml(source, platform),
+  ]
+
+  it.each(['zsxq', 'wechat'] as const)('removes attachment labels and URLs throughout %s output', (platform) => {
+    const source = `## 标题${citation}
+
+前文**重点**。${citation}${citation}后文。[正常资料](https://example.com/paper.pdf)
+
+- 列表正文${citation}
+  > 引用正文${citation}
+
+| 字段${citation} | 内容 |
+| --- | --- |
+| 表格正文${citation} | 保留内容 |
+
+**加粗正文${citation}**`
+    for (const output of outputs(source, platform)) {
+      expect(output).not.toContain('上传附件引用')
+      expect(output).not.toContain('ppl-ai-file-upload')
+      expect(output).not.toContain('test-signature')
+      for (const text of ['标题', '前文', '重点', '后文', '正常资料', 'https://example.com/paper.pdf', '列表正文', '引用正文', '字段', '表格正文', '保留内容', '加粗正文']) {
+        expect(output).toContain(text)
+      }
+    }
+    expect(renderClipboardHtml(source, platform)).toContain('<strong style="font-weight:700;">重点</strong>')
+  })
+
+  it.each(['zsxq', 'wechat'] as const)('omits standalone attachment links and autolinks from %s output', (platform) => {
+    const source = `前文。\n\n${citation}\n\n<${url}>\n\n${url}\n\n[另一附件](https://PPL-AI-FILE-UPLOAD.S3.AMAZONAWS.COM/test.pdf)\n\n后文。`
+    expect(buildRenderNodes(source, platform).map((node) => node.type)).toEqual(['paragraph', 'paragraph'])
+    expect(renderClipboardArticle(source, platform)).toBe('前文。\n\n后文。')
+    expect(renderClipboardHtml(source, platform)).not.toContain('ppl-ai-file-upload')
+  })
+
+  it.each(['zsxq', 'wechat'] as const)('preserves ordinary links, code and images in %s output', (platform) => {
+    const normalUrls = [
+      'https://example.com/?source=ppl-ai-file-upload.s3.amazonaws.com',
+      'https://other-bucket.s3.amazonaws.com/paper.pdf?Signature=test',
+      'https://ppl-ai-file-upload.s3.amazonaws.com.example.com/paper.pdf',
+      '/files/ppl-ai-file-upload.s3.amazonaws.com.pdf',
+    ]
+    const source = normalUrls.map((target) => `[ppl-ai-file-upload.s3.amazonaws](${target})`).join('\n\n')
+    for (const output of outputs(source, platform)) {
+      for (const target of normalUrls) expect(output).toContain(target)
+      expect(output).toContain('ppl-ai-file-upload.s3.amazonaws')
+    }
+
+    const literals = `\`${citation}\`\n\n\`\`\`markdown\n${citation}\n\`\`\`\n\n![原图片](${url})`
+    const nodes = buildRenderNodes(literals, platform)
+    expect(nodes[0]).toMatchObject({ type: 'paragraph', text: `“${citation}”` })
+    expect(nodes[1]).toMatchObject({ type: 'code', code: citation })
+    expect(nodes[2]).toMatchObject({ type: 'image', alt: '原图片', url })
+  })
+})
+
 describe('quotes inside list items', () => {
   const source = `3. **STAR 法则描述（结构化）**:
    > DDR4 控制器（**S**），3 周内完成验证（**T**）。
