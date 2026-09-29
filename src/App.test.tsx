@@ -244,6 +244,30 @@ describe('App immersive preview', () => {
     expect(Object.keys(payload.items)).toEqual(['text/html', 'text/plain'])
   })
 
+  it('copies previewed single-newline details as separate wechat paragraphs', async () => {
+    const markdown = '帮一家靠谱的芯片公司找人：\n🔹 项目：TSN验证；\n🔹 周期：3个月；\n🔹 人数：3-4人。\n\n有兴趣的人请联系。'
+    const expected = [
+      '帮一家靠谱的芯片公司找人：',
+      '🔹 项目：TSN验证；',
+      '🔹 周期：3个月；',
+      '🔹 人数：3-4人。',
+      '有兴趣的人请联系。',
+    ]
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+
+    expect(screen.getByTestId('wechat-output').textContent).toContain(expected.slice(0, 4).join('\n'))
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+    const payload = (navigator.clipboard.write as ReturnType<typeof vi.fn>).mock.calls[0][0][0] as ClipboardItemMock
+    const html = await readBlobText(payload.items['text/html'])
+    const copiedDocument = new DOMParser().parseFromString(html, 'text/html')
+
+    expect(Array.from(copiedDocument.body.querySelectorAll(':scope > p'), (paragraph) => paragraph.textContent)).toEqual(expected)
+    expect(await readBlobText(payload.items['text/plain'])).toContain(expected.slice(0, 4).join('\n'))
+    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+  })
+
   it('copies each wechat list label and its explanation in one paragraph', async () => {
     const markdown = '- **DRAM**：说明它仍然属于动态存储器。\n- **Synchronous**：说明它的相关接口操作与时钟建立了规定的时序关系。'
     const labels = ['DRAM', 'Synchronous']

@@ -417,6 +417,21 @@ export const renderInlineHtml = (content: InlineContent[]): string =>
     })
     .join('')
 
+const splitInlineContentLines = (content: InlineContent[]): InlineContent[][] => {
+  const lines: InlineContent[][] = [[]]
+  for (const part of content) {
+    if (part.type !== 'text') {
+      lines.at(-1)!.push(part)
+      continue
+    }
+    part.value.split('\n').forEach((value, index) => {
+      if (index > 0) lines.push([])
+      if (value) lines.at(-1)!.push({ ...part, value })
+    })
+  }
+  return lines
+}
+
 const renderListHtml = (
   ordered: boolean,
   start: number,
@@ -563,7 +578,13 @@ export const renderClipboardHtml = (
             return `<p class="ql-line-height-1_6" style="margin:${zsxqBlockMargin};line-height:1.6;"><span class="ql-size-${ZSXQ_CLIPBOARD_BODY_FONT_SIZE}" style="font-size:${ZSXQ_CLIPBOARD_BODY_FONT_SIZE};">${html}</span></p>`
           }
 
-          return `<p style="margin:0 0 14px;color:#374151;font-size:16px;line-height:1.75;text-align:left;">${html}</p>`
+          const lines = node.content
+            ? splitInlineContentLines(node.content).map(renderInlineHtml)
+            : node.text.split('\n').map(escapeHtml)
+          return lines.map((line, index) => {
+            const margin = index === lines.length - 1 ? '0 0 14px' : '0'
+            return `<p style="margin:${margin};color:#374151;font-size:16px;line-height:1.75;text-align:left;">${line || '<br>'}</p>`
+          }).join('')
         }
         case 'list': {
           return renderListHtml(

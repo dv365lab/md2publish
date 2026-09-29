@@ -768,3 +768,30 @@ xrun -64bit -uvm -f filelist.f \\
     },
   )
 })
+
+describe('wechat soft line breaks in clipboard html', () => {
+  it('keeps each newline-separated recruiting detail as an independent paragraph', () => {
+    const markdown = '帮一家靠谱的芯片公司找人：\n🔹 项目：TSN验证；\n🔹 周期：3个月；\n🔹 人数：3-4人。'
+    const container = document.createElement('div')
+    container.innerHTML = renderClipboardHtml(markdown, 'wechat')
+
+    const paragraphs = Array.from(container.querySelectorAll(':scope > p'))
+    expect(paragraphs.map((paragraph) => paragraph.textContent)).toEqual([
+      '帮一家靠谱的芯片公司找人：',
+      '🔹 项目：TSN验证；',
+      '🔹 周期：3个月；',
+      '🔹 人数：3-4人。',
+    ])
+    expect(paragraphs.every((paragraph) => !paragraph.innerHTML.includes('\n'))).toBe(true)
+  })
+
+  it('keeps inline bold ranges valid when a soft line break splits one bold run', () => {
+    const container = document.createElement('div')
+    container.innerHTML = renderClipboardHtml('**第一行\n第二行**\n第三行', 'wechat')
+    const paragraphs = Array.from(container.querySelectorAll(':scope > p'))
+
+    expect(paragraphs.map((paragraph) => paragraph.textContent)).toEqual(['第一行', '第二行', '第三行'])
+    expect(paragraphs[0].querySelector('strong')?.textContent).toBe('第一行')
+    expect(paragraphs[1].querySelector('strong')?.textContent).toBe('第二行')
+  })
+})
