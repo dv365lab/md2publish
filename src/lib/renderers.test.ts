@@ -1,6 +1,51 @@
 import { describe, expect, it } from 'vitest'
 import { buildRenderNodes, renderArticle, renderClipboardArticle, renderClipboardHtml } from './renderers'
 
+describe('ChatGPT content reference markers', () => {
+  const marker = ':chatgpt-content-reference{index="0"}'
+
+  it.each(['zsxq', 'wechat'] as const)('removes reference markers from every %s output without losing nearby text', (platform) => {
+    const source = `前文。${marker}后文。
+
+## 小节${marker}
+
+- 列表前${marker}列表后
+  > 引用前${marker}引用后
+
+| 字段 | 内容 |
+| --- | --- |
+| 表格前${marker}表格后 | 保留 |
+
+**加粗前${marker}加粗后**`
+    const outputs = [
+      JSON.stringify(buildRenderNodes(source, platform)),
+      renderArticle(source, platform),
+      renderClipboardArticle(source, platform),
+      renderClipboardHtml(source, platform),
+    ]
+    for (const output of outputs) {
+      expect(output).not.toContain('chatgpt-content-reference')
+      expect(output).not.toContain('index=')
+      for (const text of ['前文。后文。', '小节', '列表前列表后', '引用前引用后', '表格前表格后', '加粗前加粗后']) {
+        expect(output).toContain(text)
+      }
+    }
+  })
+
+  it.each(['zsxq', 'wechat'] as const)('drops marker-only blocks, including different indices, from %s', (platform) => {
+    const source = `正文之前\n\n:chatgpt-content-reference{index="1"}\n\n- :chatgpt-content-reference{index="23"}\n\n正文之后`
+    expect(buildRenderNodes(source, platform).map((node) => node.type)).toEqual(['paragraph', 'paragraph'])
+    expect(renderClipboardArticle(source, platform)).toBe('正文之前\n\n正文之后')
+  })
+
+  it.each(['zsxq', 'wechat'] as const)('keeps deliberate code literals in %s', (platform) => {
+    const source = `\`${marker}\`\n\n\`\`\`text\n${marker}\n\`\`\``
+    const nodes = buildRenderNodes(source, platform)
+    expect(nodes[0]).toMatchObject({ type: 'paragraph', text: `“${marker}”` })
+    expect(nodes[1]).toMatchObject({ type: 'code', code: marker })
+  })
+})
+
 describe('remove every hyperlink from published content', () => {
   const source = `前文 [community.cadence](https://community.cadence.com/example) 后文。
 

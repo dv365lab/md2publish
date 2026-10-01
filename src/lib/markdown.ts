@@ -397,6 +397,12 @@ const quoteToContent = (quote: Blockquote): InlineContent[][] =>
 export const parseMarkdown = (input: string): Block[] => {
   const tree = publishingTree(input)
 
+  // ChatGPT citation placeholders are article metadata, not publishable text.
+  // Process prose nodes only; inline and fenced code retain literal examples.
+  visit(tree, 'text', (node) => {
+    node.value = node.value.replace(/:chatgpt-content-reference\{[^{}\r\n]*\}/gu, '')
+  })
+
   // Remove hyperlinks after inline repairs so reparsing cannot restore them.
   // Images inside linked images remain as images rather than disappearing.
   visit(tree, 'link', (node, index, parent) => {

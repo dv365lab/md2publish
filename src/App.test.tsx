@@ -178,6 +178,39 @@ describe('App web citation removal', () => {
   })
 })
 
+describe('App ChatGPT content reference cleanup', () => {
+  const marker = ':chatgpt-content-reference{index="0"}'
+  const markdown = `本期用两个故事厘清边界。${marker}\n\n> 系统结构以实际项目规格为准。`
+
+  it.each([
+    { platform: 'zsxq', previewIndex: 0, copyLabel: '复制文章' },
+    { platform: 'wechat', previewIndex: 1, copyLabel: '复制' },
+  ])('removes markers from the $platform previews and copied content', async ({ platform, previewIndex, copyLabel }) => {
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+
+    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    const preview = screen.getByTestId(`${platform}-output`)
+    expect(preview.textContent).toContain('本期用两个故事厘清边界。')
+    expect(preview.textContent).toContain('系统结构以实际项目规格为准。')
+    expect(preview.textContent).not.toContain('chatgpt-content-reference')
+
+    fireEvent.click(screen.getAllByText('整屏查看')[previewIndex])
+    const dialog = within(screen.getByRole('dialog'))
+    expect(dialog.getByTestId('immersive-output').textContent).not.toContain('chatgpt-content-reference')
+    fireEvent.click(dialog.getByRole('button', { name: copyLabel }))
+
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+    const payload = (navigator.clipboard.write as ReturnType<typeof vi.fn>).mock.calls[0][0][0] as ClipboardItemMock
+    for (const blob of Object.values(payload.items)) {
+      const content = await readBlobText(blob)
+      expect(content).toContain('本期用两个故事厘清边界。')
+      expect(content).not.toContain('chatgpt-content-reference')
+    }
+    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+  })
+})
+
 describe('App immersive preview', () => {
   it('opens zsxq immersive preview', () => {
     render(<App />)
