@@ -36,6 +36,84 @@ afterEach(() => {
   cleanup()
 })
 
+describe('Knowledge Planet article length limit', () => {
+  const longArticle = `### Q001\n\n${'甲'.repeat(55000)}\n\n| 第一表 | 内容 |\n| --- | --- |\n| 前篇 | one |\n\n### Q181\n\n**A181**\n\n${'乙'.repeat(55000)}\n\n| 第二表 | 内容 |\n| --- | --- |\n| 后篇 | two |\n\n全文最后一句。`
+
+  it.each([false, true])('copies every part without losing A181 (immersive=%s)', async (immersive) => {
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: longArticle } })
+    if (immersive) fireEvent.click(screen.getAllByText('整屏查看')[0])
+    const surface = immersive ? within(screen.getByRole('dialog')) : screen
+
+    expect(surface.getByText(/知识星球每篇正文上限为 100,000/)).toBeVisible()
+    expect(surface.getByText(/不同的新文章/)).toBeVisible()
+    expect(surface.getByRole('combobox', { name: '知识星球复制篇章' })).toHaveValue('0')
+    fireEvent.click(surface.getByRole('button', { name: '复制第 1/2 篇' }))
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+    const firstPayload = (navigator.clipboard.write as ReturnType<typeof vi.fn>).mock.calls[0][0][0] as ClipboardItemMock
+    const first = await readBlobText(firstPayload.items['text/html'])
+    expect(first).toContain('Q001')
+    expect(first).not.toContain('A181')
+
+    fireEvent.change(surface.getByRole('combobox', { name: '知识星球复制篇章' }), { target: { value: '1' } })
+    fireEvent.click(surface.getByRole('button', { name: '复制第 2/2 篇' }))
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(2))
+    const secondPayload = (navigator.clipboard.write as ReturnType<typeof vi.fn>).mock.calls[1][0][0] as ClipboardItemMock
+    const second = await readBlobText(secondPayload.items['text/html'])
+    expect(second).toContain('A181')
+    expect(second).toContain('全文最后一句。')
+    expect(second).not.toContain('Q001')
+    expect(new DOMParser().parseFromString(first + second, 'text/html').body.textContent)
+      .toBe(`Q001${'甲'.repeat(55000)}Q181A181${'乙'.repeat(55000)}全文最后一句。`)
+    expect(renderTablesAsDataUrls).toHaveBeenNthCalledWith(2,
+      [expect.objectContaining({ header: ['第二表', '内容'] })], {},
+    )
+    expect(surface.getByRole('status')).toHaveTextContent('已复制第 2/2 篇')
+  })
+
+  it('keeps the global table width when copying the second part and resets for new input', async () => {
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: longArticle } })
+    const preview = within(screen.getByTestId('zsxq-output'))
+    fireEvent.click(preview.getAllByText('调整列宽')[1])
+    fireEvent.change(preview.getByRole('spinbutton', { name: '第二表 列宽 (px)' }), {
+      target: { value: '180' },
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: '知识星球复制篇章' }), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: '复制第 2/2 篇' }))
+    await waitFor(() => expect(renderTablesAsDataUrls).toHaveBeenCalledWith(
+      [expect.objectContaining({ header: ['第二表', '内容'] })], { 0: { 0: 180 } },
+    ))
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '新的短文章' } })
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.getByRole('button', { name: '复制文章' })).toBeEnabled()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: longArticle } })
+    expect(screen.getByRole('combobox', { name: '知识星球复制篇章' })).toHaveValue('0')
+  })
+
+  it('shows clipboard failures inside the immersive preview', async () => {
+    ;(navigator.clipboard.write as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('denied'))
+    render(<App />)
+    fireEvent.click(screen.getAllByText('整屏查看')[0])
+    const dialog = within(screen.getByRole('dialog'))
+    fireEvent.click(dialog.getByRole('button', { name: '复制文章' }))
+    await waitFor(() => expect(dialog.getByText(/富文本复制失败/)).toBeVisible())
+  })
+
+  it('blocks an oversized indivisible block with a visible explanation', () => {
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '字'.repeat(100000) } })
+    fireEvent.click(screen.getAllByText('整屏查看')[0])
+    const dialog = within(screen.getByRole('dialog'))
+    expect(dialog.getByRole('alert')).toHaveTextContent('单个内容块超过')
+    expect(dialog.getByRole('button', { name: '复制文章' })).toBeDisabled()
+    expect(navigator.clipboard.write).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '复制' })).toBeDisabled()
+  })
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('ClipboardItem', ClipboardItemMock)

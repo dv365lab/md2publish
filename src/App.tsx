@@ -7,16 +7,19 @@ import {
   type ImageSourceMap,
   type Platform,
   renderArticle,
-  renderClipboardArticle,
-  renderClipboardHtml,
+  renderClipboardNodesText,
+  renderClipboardNodesHtml,
 } from './lib/renderers'
 import {
   copyTableAsImage,
+  extractTables,
   extractTablesFromMarkdown,
   renderTablesAsDataUrls,
 } from './lib/tableImage'
 import { loadMarkdownBundle } from './lib/markdownFiles'
 import type { TableColumnWidths } from './lib/tableColumns'
+import { buildZsxqCopyPlan, ZSXQ_ARTICLE_LIMIT, ZSXQ_COPY_SAFE_LIMIT } from './lib/zsxqCopy'
+import { buildWechatCopyPlan, WECHAT_ARTICLE_LIMIT, WECHAT_COPY_SAFE_LIMIT } from './lib/articleCopy'
 
 const defaultMarkdown = `# 用 Markdown 一次生成两版文章
 
@@ -63,6 +66,8 @@ function App() {
   })
   const [importNotice, setImportNotice] = useState<string | null>(null)
   const [copyingTarget, setCopyingTarget] = useState<Platform | null>(null)
+  const [zsxqCopyPartIndex, setZsxqCopyPartIndex] = useState(0)
+  const [wechatCopyPartIndex, setWechatCopyPartIndex] = useState(0)
 
   const result = useMemo(() => {
     const zsxq = renderArticle(markdown, 'zsxq', imageSources)
@@ -72,6 +77,62 @@ function App() {
 
     return { zsxq, wechat, zsxqNodes, wechatNodes }
   }, [imageSources, markdown])
+
+  const zsxqCopyPlan = useMemo(() => buildZsxqCopyPlan(result.zsxqNodes), [result.zsxqNodes])
+  const wechatCopyPlan = useMemo(() => buildWechatCopyPlan(result.wechatNodes), [result.wechatNodes])
+  const copyPlans = { zsxq: zsxqCopyPlan, wechat: wechatCopyPlan }
+  const copyPartIndexes = { zsxq: zsxqCopyPartIndex, wechat: wechatCopyPartIndex }
+
+  const copyLabel = (target: Platform) => {
+    if (copyingTarget === target) return target === 'zsxq' ? '正在生成…' : '正在复制…'
+    const copied = copiedKey === `${target}-rich-${copyPartIndexes[target]}`
+    if (copyPlans[target].parts.length > 1) {
+      return `${copied ? '已复制' : '复制'}第 ${copyPartIndexes[target] + 1}/${copyPlans[target].parts.length} 篇`
+    }
+    return target === 'zsxq' ? copied ? '已复制文章' : '复制文章' : copied ? '已复制' : '复制'
+  }
+
+  const renderCopyOptions = (target: Platform) => {
+    const plan = copyPlans[target]
+    const name = target === 'zsxq' ? '知识星球' : '微信公众号'
+    const limit = target === 'zsxq' ? ZSXQ_ARTICLE_LIMIT : WECHAT_ARTICLE_LIMIT
+    const safeLimit = target === 'zsxq' ? ZSXQ_COPY_SAFE_LIMIT : WECHAT_COPY_SAFE_LIMIT
+    return plan.error ? (
+      <p className="copy-limit-notice" role="alert">{plan.error}</p>
+    ) : plan.parts.length > 1 ? (
+      <div className="copy-limit-notice">
+        <p>
+          {name}每篇正文上限为 {limit.toLocaleString('en-US')} 字符。
+          当前复制内容估算 {plan.estimatedLength.toLocaleString('en-US')} 字符，
+          已分为 {plan.parts.length} 篇，每篇控制在 {safeLimit.toLocaleString('en-US')} 字符以内，预留粘贴余量。
+        </p>
+        <p>请依次选择并复制各篇，分别粘贴到不同的新文章；追加到同一篇仍会超限。下方预览展示全文。</p>
+        <label>
+          选择篇章
+          <select
+            aria-label={`${name}复制篇章`}
+            value={copyPartIndexes[target]}
+            disabled={copyingTarget !== null}
+            onChange={(event) => {
+              if (target === 'zsxq') {
+                setZsxqCopyPartIndex(Number(event.target.value))
+                setCopyNotice(null)
+              } else {
+                setWechatCopyPartIndex(Number(event.target.value))
+                setWechatCopyNotice(null)
+              }
+            }}
+          >
+            {plan.parts.map((part, index) => (
+              <option key={index} value={index}>
+                第 {index + 1}/{plan.parts.length} 篇（约 {part.estimatedLength.toLocaleString('en-US')} 字符）
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    ) : null
+  }
 
   const clearCopiedStateLater = (key: string) => {
     setCopiedKey(key)
@@ -87,13 +148,28 @@ function App() {
   const canUseRichClipboard = typeof ClipboardItem !== 'undefined' && Boolean(navigator.clipboard.write)
 
   const handleCopy = async (target: Platform) => {
-    const text = renderClipboardArticle(markdown, target, imageSources)
-    const tables = extractTablesFromMarkdown(markdown, target)
+    const plan = copyPlans[target]
+    const partIndex = copyPartIndexes[target]
+    const part = plan.parts[partIndex]
+    const setNotice = target === 'zsxq' ? setCopyNotice : setWechatCopyNotice
+    if (plan.error || !part) {
+      setNotice(plan.error ?? '无法生成分篇，请检查文章内容。')
+      return
+    }
+    const isMultipart = plan.parts.length > 1
+    const partName = `第 ${partIndex + 1}/${plan.parts.length} 篇`
+    const copyKey = `${target}-rich-${partIndex}`
+    const text = target === 'wechat' ? renderClipboardNodesText(part.nodes, target) : ''
+    const tables = extractTables(part.nodes)
+    const copyColumnWidths = Object.fromEntries(tables.flatMap((_, index) => {
+      const widths = tableColumnWidths[part.startTableIndex + index]
+      return widths ? [[index, widths]] : []
+    }))
     const isZsxqRichCopy = target === 'zsxq'
 
     setCopyingTarget(target)
     if (isZsxqRichCopy) {
-      setCopyNotice('正在生成高清表格图片，请稍候…')
+      setCopyNotice(tables.length > 0 ? '正在生成高清表格图片，请稍候…' : '正在复制知识星球富文本…')
     } else {
       setWechatCopyNotice(
         tables.length > 0 ? '正在把表格生成高清图片，请稍候…' : '正在复制公众号富文本…',
@@ -102,9 +178,9 @@ function App() {
 
     try {
       const tableImageSources = tables.length > 0
-        ? await renderTablesAsDataUrls(tables, tableColumnWidths)
+        ? await renderTablesAsDataUrls(tables, copyColumnWidths)
         : []
-      const html = renderClipboardHtml(markdown, target, imageSources, tableImageSources)
+      const html = renderClipboardNodesHtml(part.nodes, target, tableImageSources)
       let copiedAsPlainText = false
 
       if (canUseRichClipboard) {
@@ -137,8 +213,15 @@ function App() {
         copiedAsPlainText = true
       }
 
+      clearCopiedStateLater(copyKey)
+      if (isMultipart) {
+        const formatNotice = copiedAsPlainText
+          ? '当前浏览器未能写入富文本，已复制本篇纯文本；建议使用最新版 Chrome。'
+          : tableImageSources.length > 0 ? `本篇 ${tableImageSources.length} 个表格已转为高清图片。` : ''
+        setNotice(`已复制${partName}，请粘贴到一篇新的${target === 'zsxq' ? '知识星球' : '微信公众号'}文章。${formatNotice}${partIndex < plan.parts.length - 1 ? '粘贴后请选择下一篇继续复制。' : '这是最后一篇，请确认前面的篇章均已复制。'}`)
+        return
+      }
       if (target === 'zsxq') {
-        clearCopiedStateLater('zsxq-rich')
         setCopyNotice(
           tableImageSources.length > 0
             ? `已复制知识星球文章，${tableImageSources.length} 个表格已自动转为高清图片。`
@@ -147,7 +230,6 @@ function App() {
         return
       }
 
-      clearCopiedStateLater('wechat-rich')
       setWechatCopyNotice(
         copiedAsPlainText
           ? '当前浏览器未能写入富文本，已复制纯文本；建议使用最新版 Chrome。'
@@ -202,6 +284,11 @@ function App() {
   const resetTableCopyIndex = () => {
     setTableCopyIndex(0)
     setTableColumnWidths({})
+    setZsxqCopyPartIndex(0)
+    setWechatCopyPartIndex(0)
+    setCopyNotice(null)
+    setWechatCopyNotice(null)
+    setCopiedKey(null)
   }
 
   const handleTableColumnWidthChange = (
@@ -319,14 +406,10 @@ function App() {
                 <button
                   type="button"
                   className="copy-button"
-                  disabled={copyingTarget !== null}
+                  disabled={copyingTarget !== null || Boolean(zsxqCopyPlan.error)}
                   onClick={() => handleCopy('zsxq')}
                 >
-                  {copyingTarget === 'zsxq'
-                    ? '正在生成…'
-                    : copiedKey === 'zsxq-rich'
-                      ? '已复制文章'
-                      : '复制文章'}
+                  {copyLabel('zsxq')}
                 </button>
                 <button
                   type="button"
@@ -341,7 +424,8 @@ function App() {
                 </button>
               </div>
             </div>
-            {copyNotice ? <p className="copy-notice">{copyNotice}</p> : null}
+            {renderCopyOptions('zsxq')}
+            {copyNotice ? <p className="copy-notice" role="status">{copyNotice}</p> : null}
             <div className="output-frame">
               <ArticlePreview
                 nodes={result.zsxqNodes}
@@ -374,18 +458,15 @@ function App() {
                 <button
                   type="button"
                   className="copy-button"
-                  disabled={copyingTarget !== null}
+                  disabled={copyingTarget !== null || Boolean(wechatCopyPlan.error)}
                   onClick={() => handleCopy('wechat')}
                 >
-                  {copyingTarget === 'wechat'
-                    ? '正在复制…'
-                    : copiedKey === 'wechat-rich'
-                      ? '已复制'
-                      : '复制'}
+                  {copyLabel('wechat')}
                 </button>
               </div>
             </div>
-            {wechatCopyNotice ? <p className="copy-notice">{wechatCopyNotice}</p> : null}
+            {renderCopyOptions('wechat')}
+            {wechatCopyNotice ? <p className="copy-notice" role="status">{wechatCopyNotice}</p> : null}
             <div className="output-frame">
               <ArticlePreview
                 nodes={result.wechatNodes}
@@ -429,14 +510,10 @@ function App() {
                     <button
                       type="button"
                       className="copy-button"
-                      disabled={copyingTarget !== null}
+                      disabled={copyingTarget !== null || Boolean(zsxqCopyPlan.error)}
                       onClick={() => handleCopy('zsxq')}
                     >
-                      {copyingTarget === 'zsxq'
-                        ? '正在生成…'
-                        : copiedKey === 'zsxq-rich'
-                          ? '已复制文章'
-                          : '复制文章'}
+                      {copyLabel('zsxq')}
                     </button>
                     <button
                       type="button"
@@ -454,14 +531,10 @@ function App() {
                   <button
                     type="button"
                     className="copy-button"
-                    disabled={copyingTarget !== null}
+                    disabled={copyingTarget !== null || Boolean(wechatCopyPlan.error)}
                     onClick={() => handleCopy('wechat')}
                   >
-                    {copyingTarget === 'wechat'
-                      ? '正在复制…'
-                      : copiedKey === 'wechat-rich'
-                        ? '已复制'
-                        : '复制'}
+                    {copyLabel('wechat')}
                   </button>
                 )}
                 <button type="button" className="preview-button" onClick={closeImmersivePreview}>
@@ -469,6 +542,10 @@ function App() {
                 </button>
               </div>
             </div>
+            {renderCopyOptions(immersiveTarget)}
+            {(immersiveTarget === 'zsxq' ? copyNotice : wechatCopyNotice) ? (
+              <p className="copy-notice" role="status">{immersiveTarget === 'zsxq' ? copyNotice : wechatCopyNotice}</p>
+            ) : null}
             <div className="immersive-body">
               <ArticlePreview
                 nodes={immersiveTarget === 'zsxq' ? result.zsxqNodes : result.wechatNodes}

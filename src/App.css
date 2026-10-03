@@ -163,6 +163,37 @@
   line-height: 1.5;
 }
 
+.copy-limit-notice {
+  flex: none;
+  margin: 0;
+  padding: 12px 24px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.copy-limit-notice p {
+  margin: 0 0 8px;
+}
+
+.copy-limit-notice label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.copy-limit-notice select {
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #7c2d12;
+  font: inherit;
+}
+
 .import-notice {
   margin: 0;
   padding: 12px 24px;

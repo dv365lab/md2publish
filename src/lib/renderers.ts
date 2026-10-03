@@ -348,7 +348,10 @@ export const renderClipboardArticle = (
   imageSources: ImageSourceMap = {},
 ) => {
   const nodes = buildRenderNodes(markdown, platform, imageSources)
+  return renderClipboardNodesText(nodes, platform)
+}
 
+export const renderClipboardNodesText = (nodes: RenderNode[], platform: Platform) => {
   const rendered = nodes.map((node) => {
     switch (node.type) {
       case 'heading':
@@ -553,6 +556,14 @@ export const renderClipboardHtml = (
   tableImageSources: readonly string[] = [],
 ) => {
   const nodes = buildRenderNodes(markdown, platform, imageSources)
+  return renderClipboardNodesHtml(nodes, platform, tableImageSources)
+}
+
+export const renderClipboardNodesHtml = (
+  nodes: RenderNode[],
+  platform: Platform,
+  tableImageSources: readonly string[] = [],
+) => {
   let tableIndex = 0
 
   return nodes
