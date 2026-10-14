@@ -217,14 +217,14 @@ function App() {
       if (isMultipart) {
         const formatNotice = copiedAsPlainText
           ? '当前浏览器未能写入富文本，已复制本篇纯文本；建议使用最新版 Chrome。'
-          : tableImageSources.length > 0 ? `本篇 ${tableImageSources.length} 个表格已转为高清图片。` : ''
+          : tableImageSources.length > 0 ? `本篇 ${tableImageSources.length} 个表格已转为高清图片。${target === 'zsxq' ? '粘贴后请等待图片上传完成再发布。' : ''}` : ''
         setNotice(`已复制${partName}，请粘贴到一篇新的${target === 'zsxq' ? '知识星球' : '微信公众号'}文章。${formatNotice}${partIndex < plan.parts.length - 1 ? '粘贴后请选择下一篇继续复制。' : '这是最后一篇，请确认前面的篇章均已复制。'}`)
         return
       }
       if (target === 'zsxq') {
         setCopyNotice(
           tableImageSources.length > 0
-            ? `已复制知识星球文章，${tableImageSources.length} 个表格已自动转为高清图片。`
+            ? `已复制知识星球文章，${tableImageSources.length} 个表格已自动转为高清图片。粘贴后请等待图片上传完成再发布。`
             : '已复制知识星球富文本，请直接粘贴。',
         )
         return

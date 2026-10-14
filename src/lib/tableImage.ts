@@ -106,11 +106,54 @@ export const renderTableAsDataUrl = async (table: TablePayload, columnWidths?: C
   return canvas.toDataURL('image/png')
 }
 
+const distinguishRepeatedPng = (dataUrl: string) => {
+  const prefix = 'data:image/png;base64,'
+  const bytes = Uint8Array.from(atob(dataUrl.slice(prefix.length)), (char) => char.charCodeAt(0))
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10]
+  const iendOffset = bytes.length - 12
+  if (!dataUrl.startsWith(prefix) || iendOffset < 8
+    || !signature.every((byte, index) => bytes[index] === byte)
+    || String.fromCharCode(...bytes.subarray(iendOffset + 4, iendOffset + 8)) !== 'IEND') {
+    throw new Error('重复表格图片的 PNG 数据无效，请重新复制。')
+  }
+
+  // Zsxq's paste uploader deduplicates by src but only replaces one occurrence.
+  // Give repeated tables distinct PNG metadata; retain all original pixel data
+  // and the usual data:image/png;base64 header so upload validation still works.
+  const text = new TextEncoder().encode(`md2publish-copy-id\0${crypto.randomUUID()}`)
+  const chunk = new Uint8Array(text.length + 12)
+  const view = new DataView(chunk.buffer)
+  view.setUint32(0, text.length)
+  chunk.set([116, 69, 88, 116], 4) // tEXt
+  chunk.set(text, 8)
+  let crc = 0xffffffff
+  for (const byte of chunk.subarray(4, chunk.length - 4)) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0)
+    }
+  }
+  view.setUint32(chunk.length - 4, (crc ^ 0xffffffff) >>> 0)
+
+  const result = new Uint8Array(bytes.length + chunk.length)
+  result.set(bytes.subarray(0, iendOffset))
+  result.set(chunk, iendOffset)
+  result.set(bytes.subarray(iendOffset), iendOffset + chunk.length)
+  const encoded: string[] = []
+  for (let offset = 0; offset < result.length; offset += 32768) {
+    encoded.push(String.fromCharCode(...result.subarray(offset, offset + 32768)))
+  }
+  return prefix + btoa(encoded.join(''))
+}
+
 export const renderTablesAsDataUrls = async (tables: TablePayload[], columnWidths?: TableColumnWidths) => {
   const images: string[] = []
+  const seen = new Set<string>()
 
   for (const [index, table] of tables.entries()) {
-    images.push(await renderTableAsDataUrl(table, columnWidths?.[index]))
+    const image = await renderTableAsDataUrl(table, columnWidths?.[index])
+    images.push(seen.has(image) ? distinguishRepeatedPng(image) : image)
+    seen.add(image)
   }
 
   return images
