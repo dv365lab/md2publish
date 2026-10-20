@@ -2,10 +2,10 @@
 import { Buffer } from 'node:buffer'
 import { crc32, inflateSync } from 'node:zlib'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import html2canvas from 'html2canvas'
+import html2canvas from 'html2canvas-pro'
 import { renderTablesAsDataUrls } from './tableImage'
 
-vi.mock('html2canvas', () => ({ default: vi.fn() }))
+vi.mock('html2canvas-pro', () => ({ default: vi.fn() }))
 
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
 const otherPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/5ncLrgAAAABJRU5ErkJggg=='

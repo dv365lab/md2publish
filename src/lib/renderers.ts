@@ -1,3 +1,4 @@
+import { parseFenceInfo, parseLineMarkers, type LineDecorations } from './codeMeta'
 import { parseMarkdown, type InlineContent, type ListItemBlock, type TableContent } from './markdown'
 
 export type Platform = 'zsxq' | 'wechat'
@@ -7,8 +8,27 @@ export type RenderNode =
   | { type: 'heading'; text: string; level: 1 | 2 | 3 }
   | { type: 'paragraph'; text: string; content?: InlineContent[] }
   | { type: 'list'; ordered: boolean; start: number; items: ListItemBlock[] }
-  | { type: 'quote'; lines: string[]; content?: InlineContent[][]; calloutLabel?: string }
-  | { type: 'code'; label: string; code: string; trailingColon: boolean }
+  | { type: 'quote'; lines: string[]; content?: InlineContent[][]; calloutLabel?: string; continued?: boolean }
+  | {
+      type: 'code'
+      label: string
+      /** Code with inline `[!code …]` markers removed. */
+      code: string
+      trailingColon: boolean
+      /** Language without fence options, e.g. `sv` for ```sv:42. */
+      lang?: string
+      /** Displayed number of this node's first line. */
+      startLine?: number
+      decorations?: LineDecorations
+      /** True when any line of the block is marked `focus`; other lines are dimmed. */
+      focus?: boolean
+      /** Set on split chunks: last line number and widest line of the whole block, so chunks share gutter width and font size. */
+      blockEndLine?: number
+      maxLineWidth?: number
+      /** Set on split chunks: whole-block source and first line, for highlighting with full context. */
+      blockCode?: string
+      blockStartLine?: number
+    }
   | { type: 'thematicBreak'; marker: string }
   | { type: 'image'; title: string; metaLabel: string; urlLabel: string; alt: string; url: string; src: string }
   | ({ type: 'table'; header: string[]; rows: string[][] } & Partial<TableContent>)
@@ -22,9 +42,9 @@ export const HEADING_APPEARANCE = {
 } as const satisfies Record<HeadingLevel, { color: string; fontWeight: number }>
 
 const WECHAT_HEADING_APPEARANCE = {
-  1: { color: '#1f2937', fontWeight: 700 },
-  2: { color: '#1f2937', fontWeight: 700 },
-  3: { color: '#1f2937', fontWeight: 700 },
+  1: { color: HEADING_APPEARANCE[1].color, fontWeight: 700 },
+  2: { color: HEADING_APPEARANCE[2].color, fontWeight: 700 },
+  3: { color: HEADING_APPEARANCE[3].color, fontWeight: 700 },
 } as const satisfies Record<HeadingLevel, { color: string; fontWeight: number }>
 
 const WECHAT_HEADING_TYPOGRAPHY = {
@@ -174,19 +194,29 @@ const headingTextForPlatform = (
   return text
 }
 
-const codeNode = (lang: string, code: string, platform: Platform): RenderNode => ({
-  type: 'code',
-  label: lang ? `代码示例（${lang}）` : '代码示例',
-  code,
-  trailingColon: platform === 'zsxq',
-})
+const codeNode = (rawLang: string, rawCode: string, platform: Platform, meta?: string): RenderNode => {
+  const { lang, startLine, highlightLines } = parseFenceInfo(rawLang, meta)
+  const { code, decorations, focus } = parseLineMarkers(rawCode, startLine, highlightLines)
+  return {
+    type: 'code',
+    label: lang ? `代码示例（${lang}）` : '代码示例',
+    code,
+    trailingColon: platform === 'zsxq',
+    ...(lang ? { lang } : {}),
+    ...(startLine === undefined ? {} : { startLine }),
+    ...(Object.keys(decorations).length ? { decorations } : {}),
+    ...(focus ? { focus } : {}),
+  }
+}
 
 export const buildRenderNodes = (
   markdown: string,
   platform: Platform,
   imageSources: ImageSourceMap = {},
+  { keepThematicBreaks = false }: { keepThematicBreaks?: boolean } = {},
 ): RenderNode[] => {
-  const blocks = parseMarkdown(markdown).filter((block) => block.type !== 'thematicBreak')
+  const blocks = parseMarkdown(markdown, { removeNumericCitations: platform === 'wechat' })
+    .filter((block) => keepThematicBreaks || block.type !== 'thematicBreak')
   let sectionNumber = 0
 
   return blocks.map((block) => {
@@ -212,7 +242,7 @@ export const buildRenderNodes = (
       case 'quote':
         return { type: 'quote', ...normalizeQuote(block.content) }
       case 'code':
-        return codeNode(block.lang, block.code, platform)
+        return codeNode(block.lang, block.code, platform, block.meta)
       case 'image':
         return platform === 'zsxq'
           ? {
@@ -235,6 +265,8 @@ export const buildRenderNodes = (
             }
       case 'table':
         return { type: 'table', header: block.header, rows: block.rows, headerContent: block.headerContent, rowsContent: block.rowsContent }
+      case 'thematicBreak':
+        return { type: 'thematicBreak', marker: '---' }
       default:
         return { type: 'paragraph', text: '' }
     }
@@ -581,7 +613,7 @@ export const renderClipboardNodesHtml = (
           const tag = `h${node.level}`
           const typographyStyle = `font-size:${typography.fontSize};line-height:${typography.lineHeight};`
           const layoutStyle = WECHAT_HEADING_LAYOUT[node.level]
-          return `<${tag} style="color:${appearance.color};font-weight:${appearance.fontWeight};${typographyStyle}${layoutStyle}"><strong>${escapeHtml(node.text)}</strong></${tag}>`
+          return `<${tag} style="color:${appearance.color};font-weight:${appearance.fontWeight};${typographyStyle}${layoutStyle}"><strong style="color:${appearance.color};">${escapeHtml(node.text)}</strong></${tag}>`
         }
         case 'paragraph': {
           const html = node.content ? renderInlineHtml(node.content) : escapeHtml(node.text)

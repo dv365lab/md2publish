@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import './App.css'
 import sampleImage from './assets/hero.png?inline'
 import { ArticlePreview } from './components/ArticlePreview'
+import { XhsPanel } from './components/XhsPanel'
 import {
   buildRenderNodes,
   type ImageSourceMap,
@@ -16,7 +17,7 @@ import {
   extractTablesFromMarkdown,
   renderTablesAsDataUrls,
 } from './lib/tableImage'
-import { loadMarkdownBundle } from './lib/markdownFiles'
+import { loadSourceBundle } from './lib/markdownFiles'
 import type { TableColumnWidths } from './lib/tableColumns'
 import { buildZsxqCopyPlan, ZSXQ_ARTICLE_LIMIT, ZSXQ_COPY_SAFE_LIMIT } from './lib/zsxqCopy'
 import { buildWechatCopyPlan, WECHAT_ARTICLE_LIMIT, WECHAT_COPY_SAFE_LIMIT } from './lib/articleCopy'
@@ -51,8 +52,19 @@ function hello(name: string) {
 
 最后一段作为结尾，总结全文内容。`
 
+type PreviewTab = Platform | 'xhs'
+
+const PREVIEW_TABS: { id: PreviewTab; label: string }[] = [
+  { id: 'zsxq', label: '知识星球' },
+  { id: 'wechat', label: '公众号' },
+  { id: 'xhs', label: '小红书' },
+]
+
 function App() {
   const [markdown, setMarkdown] = useState(defaultMarkdown)
+  const [activeTab, setActiveTab] = useState<PreviewTab>('zsxq')
+  const tabRefs = useRef<Partial<Record<PreviewTab, HTMLButtonElement | null>>>({})
+  const [sourceName, setSourceName] = useState<string | undefined>(undefined)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [immersiveTarget, setImmersiveTarget] = useState<'zsxq' | 'wechat' | null>(null)
   const [immersiveWidths, setImmersiveWidths] = useState({ zsxq: 1100, wechat: 1100 })
@@ -321,12 +333,18 @@ function App() {
     }
 
     try {
-      const bundle = await loadMarkdownBundle(files)
+      const bundle = await loadSourceBundle(files)
       setMarkdown(bundle.markdown)
       setImageSources(bundle.imageSources)
+      setSourceName(bundle.markdownFileName)
       resetTableCopyIndex()
 
-      if (bundle.unresolvedImageReferences.length > 0) {
+      if (bundle.sourceKind === 'pptx') {
+        const notes = bundle.importNotes?.length ? `；${bundle.importNotes.join('，')}` : ''
+        setImportNotice(
+          `已从 ${bundle.markdownFileName} 转换 ${bundle.slideCount ?? 0} 页为 Markdown${bundle.resolvedImageCount > 0 ? `，并载入 ${bundle.resolvedImageCount} 张图片` : ''}${notes}。可在左侧继续编辑后再发布。`,
+        )
+      } else if (bundle.unresolvedImageReferences.length > 0) {
         setImportNotice(
           `已导入 ${bundle.markdownFileName}；${bundle.resolvedImageCount} 张本地图片已载入，仍缺少：${bundle.unresolvedImageReferences.join('、')}。请重新选择 Markdown 和这些图片。`,
         )
@@ -336,18 +354,42 @@ function App() {
         )
       }
     } catch (error) {
-      setImportNotice(error instanceof Error ? error.message : 'Markdown 文件导入失败，请重试。')
+      setImportNotice(error instanceof Error ? error.message : '文件导入失败，请重试。')
     }
   }
+
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const index = PREVIEW_TABS.findIndex((tab) => tab.id === activeTab)
+    const nextIndex = {
+      ArrowRight: (index + 1) % PREVIEW_TABS.length,
+      ArrowLeft: (index - 1 + PREVIEW_TABS.length) % PREVIEW_TABS.length,
+      Home: 0,
+      End: PREVIEW_TABS.length - 1,
+    }[event.key]
+    if (nextIndex === undefined) return
+    event.preventDefault()
+    const next = PREVIEW_TABS[nextIndex].id
+    setActiveTab(next)
+    tabRefs.current[next]?.focus()
+  }
+
+  // All panels stay mounted so tab switches keep generated cards and copy state;
+  // inactive panels are hidden with CSS only.
+  const tabPanelProps = (tab: PreviewTab) => ({
+    role: 'tabpanel' as const,
+    id: `preview-panel-${tab}`,
+    'aria-labelledby': `preview-tab-${tab}`,
+    className: `panel preview-tabpanel${activeTab === tab ? '' : ' is-inactive'}`,
+  })
 
   return (
     <main className="app-shell">
       <header className="hero">
         <div>
           <span className="eyebrow">md2publish</span>
-          <h1>把 Markdown 直接转换成知识星球和公众号文章</h1>
+          <h1>把 Markdown / PPT 转换成知识星球、公众号文章和小红书图文</h1>
           <p className="hero-copy">
-            粘贴 Markdown 后，自动生成两份更适合直接发布的普通文章内容。
+            粘贴 Markdown 或导入 PPTX 后，自动生成适合直接发布的文章内容和小红书卡片。
           </p>
         </div>
       </header>
@@ -357,14 +399,14 @@ function App() {
           <div className="panel-header">
             <div>
               <h2>Markdown 输入</h2>
-              <p>可直接粘贴，也可选择一个 Markdown 文件；本地图片请与文件一起选择。</p>
+              <p>可直接粘贴，也可选择一个 Markdown 文件（本地图片请一起选择）或一个 PPTX 演示文稿。</p>
             </div>
             <label className="import-button">
-              导入 Markdown/图片
+              导入 Markdown/PPTX/图片
               <input
                 className="file-input"
                 type="file"
-                accept=".md,.markdown,text/markdown,image/*"
+                accept=".md,.markdown,.pptx,text/markdown,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/*"
                 multiple
                 onChange={(event) => {
                   void handleMarkdownFiles(event.currentTarget.files)
@@ -376,6 +418,7 @@ function App() {
           {importNotice ? <p className="import-notice">{importNotice}</p> : null}
           <textarea
             className="editor"
+            aria-label="Markdown 输入"
             value={markdown}
             onChange={(event) => {
               setMarkdown(event.target.value)
@@ -385,8 +428,29 @@ function App() {
           />
         </article>
 
-        <section className="preview-grid">
-          <article className="panel">
+        <section className="preview-area">
+          <div className="preview-tabs" role="tablist" aria-label="输出平台" onKeyDown={handleTabKeyDown}>
+            {PREVIEW_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                ref={(element) => {
+                  tabRefs.current[tab.id] = element
+                }}
+                type="button"
+                role="tab"
+                id={`preview-tab-${tab.id}`}
+                aria-selected={activeTab === tab.id}
+                aria-controls={`preview-panel-${tab.id}`}
+                tabIndex={activeTab === tab.id ? 0 : -1}
+                className={`preview-tab${activeTab === tab.id ? ' is-active' : ''}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <article {...tabPanelProps('zsxq')}>
             <div className="panel-header">
               <div>
                 <h2>知识星球版</h2>
@@ -438,7 +502,7 @@ function App() {
             </div>
           </article>
 
-          <article className="panel">
+          <article {...tabPanelProps('wechat')}>
             <div className="panel-header">
               <div>
                 <h2>微信公众号版</h2>
@@ -478,6 +542,13 @@ function App() {
               />
             </div>
           </article>
+
+          <XhsPanel
+            markdown={markdown}
+            imageSources={imageSources}
+            sourceName={sourceName}
+            panelProps={tabPanelProps('xhs')}
+          />
         </section>
       </section>
 

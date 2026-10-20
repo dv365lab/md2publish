@@ -32,7 +32,7 @@ const longArticle = `### Q001\n\n${'甲'.repeat(25000)}\n\n| 第一表 | 内容 
 
 const enterArticle = (markdown = longArticle) => {
   render(<App />)
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: markdown } })
 }
 
 const wechatPanel = () => within(screen.getByRole('heading', { name: '微信公众号版' }).closest('article')!)
@@ -54,6 +54,49 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+})
+
+describe('WeChat heading colors and numeric citations', () => {
+  it.each([false, true])('previews and copies colored headings without citation labels (immersive=%s)', async (immersive) => {
+    const markdown = '# FlexNoC 资料合集[5]\n\n客户覆盖多个领域。[5][3][2]\n\n## 几点说明[6]\n\n- 历史版本以学习架构思想为主。[5]\n\n### 下载方式[7]\n\n| 字段[8] | 内容 |\n| --- | --- |\n| 资料[9] | 保留内容[10] |'
+    enterArticle(markdown)
+    if (immersive) fireEvent.click(wechatPanel().getByRole('button', { name: '整屏查看' }))
+    const surface = immersive ? within(screen.getByRole('dialog')) : wechatPanel()
+    const preview = surface.getByTestId(immersive ? 'immersive-output' : 'wechat-output')
+
+    expect(preview.textContent).not.toMatch(/\[\d+\]/u)
+    expect(within(preview).getByText('FlexNoC 资料合集')).toHaveStyle({ color: '#1d4ed8' })
+    expect(within(preview).getByText('一、几点说明')).toHaveStyle({ color: '#7c3aed' })
+    expect(within(preview).getByText('下载方式')).toHaveStyle({ color: '#0f766e' })
+    expect(screen.getByTestId('zsxq-output').textContent).toContain('[5][3][2]')
+
+    fireEvent.click(surface.getByRole('button', { name: '复制' }))
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+    const payload = vi.mocked(navigator.clipboard.write).mock.calls[0][0][0] as unknown as ClipboardItemMock
+    const html = await readBlobText(payload.items['text/html'])
+    const text = await readBlobText(payload.items['text/plain'])
+    for (const output of [html, text]) {
+      expect(output).not.toMatch(/\[\d+\]/u)
+      expect(output).toContain('客户覆盖多个领域。')
+      expect(output).toContain('历史版本以学习架构思想为主。')
+    }
+    const copied = new DOMParser().parseFromString(html, 'text/html')
+    expect(Array.from(copied.querySelectorAll('h1 strong, h2 strong, h3 strong'), (heading) => (heading as HTMLElement).style.color))
+      .toEqual(['rgb(29, 78, 216)', 'rgb(124, 58, 237)', 'rgb(15, 118, 110)'])
+    expect(renderTablesAsDataUrls).toHaveBeenCalledWith([
+      expect.objectContaining({ header: ['字段', '内容'], rows: [['资料', '保留内容']] }),
+    ], {})
+    expect(text).toContain('资料 | 保留内容')
+    expect(screen.getByRole('textbox', { name: 'Markdown 输入' })).toHaveValue(markdown)
+  })
+
+  it('removes citations from the plain-text fallback when rich copying is rejected', async () => {
+    vi.mocked(navigator.clipboard.write).mockRejectedValueOnce(new Error('denied'))
+    enterArticle('客户覆盖多个领域。[5][3][2]')
+    fireEvent.click(wechatPanel().getByRole('button', { name: '复制' }))
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith('客户覆盖多个领域。'))
+  })
 })
 
 describe('WeChat article copy capacity', () => {
@@ -155,11 +198,11 @@ describe('WeChat article copy capacity', () => {
     await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
     expect(wechatPanel().getByRole('status')).toHaveTextContent('已复制第 2/')
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '新的短文章' } })
-    expect(screen.queryByRole('combobox')).toBeNull()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: '新的短文章' } })
+    expect(screen.queryByRole('combobox', { name: /复制篇章/ })).toBeNull()
     expect(wechatPanel().queryByRole('status')).toBeNull()
     expect(wechatPanel().getByRole('button', { name: '复制' })).toBeEnabled()
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: bothMultipart } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: bothMultipart } })
     expect(screen.getByRole('combobox', { name: '微信公众号复制篇章' })).toHaveValue('0')
     expect(screen.getByRole('combobox', { name: '知识星球复制篇章' })).toHaveValue('0')
   })

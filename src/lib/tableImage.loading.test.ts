@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 afterEach(() => {
-  vi.doUnmock('html2canvas')
+  vi.doUnmock('html2canvas-pro')
   vi.resetModules()
   vi.unstubAllGlobals()
 })
@@ -29,7 +29,7 @@ describe('table image renderer loading', () => {
       }
       return { default: renderer }
     })
-    vi.doMock('html2canvas', loadRenderer)
+    vi.doMock('html2canvas-pro', loadRenderer)
 
     const { copyTableAsImage, renderTablesAsDataUrls } = await import('./tableImage')
     allowModuleLoad = false

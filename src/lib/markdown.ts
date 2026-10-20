@@ -43,7 +43,7 @@ type Block =
   | { type: 'paragraph'; text: string; content: InlineContent[] }
   | { type: 'list'; ordered: boolean; start: number; items: ListItemBlock[] }
   | { type: 'quote'; text: string[]; content: InlineContent[][] }
-  | { type: 'code'; lang: string; code: string }
+  | { type: 'code'; lang: string; code: string; meta?: string }
   | { type: 'thematicBreak' }
   | { type: 'image'; alt: string; url: string }
   | ({ type: 'table'; header: string[]; rows: string[][] } & TableContent)
@@ -53,8 +53,8 @@ const parser = unified().use(remarkParse).use(remarkGfm)
 // Repair only prose text tokens, so code, link destinations and escaped markers
 // retain their original meaning. Sentinels keep fragments in inline context and
 // preserve boundary whitespace that the block parser would otherwise trim.
-const parseInlineFragment = (source: string): PhrasingContent[] => {
-  const tree = publishingTree(`x${source}y`)
+const parseInlineFragment = (source: string, removeNumericCitations: boolean): PhrasingContent[] => {
+  const tree = publishingTree(`x${source}y`, removeNumericCitations)
   // Text positions can span blockquote continuation prefixes (\n> ...).
   // Keep every paragraph when reparsing such a fragment, not just the first.
   const collect = (nodes: RootContent[]): PhrasingContent[] => nodes.flatMap((node, index) => {
@@ -73,7 +73,7 @@ const parseInlineFragment = (source: string): PhrasingContent[] => {
   return content
 }
 
-const publishingTree = (input: string): Root => {
+const publishingTree = (input: string, removeNumericCitations: boolean): Root => {
   const tree = parser.parse(input) as Root
 
   // CommonMark can pair the closing ** of one Chinese phrase with the opening
@@ -122,16 +122,16 @@ const publishingTree = (input: string): Root => {
       const closing = markers[index + 1]
       const value = source.slice(opening + 2, closing)
       if (!value.trim()) continue
-      parts.push(...parseInlineFragment(source.slice(cursor, opening)))
+      parts.push(...parseInlineFragment(source.slice(cursor, opening), removeNumericCitations))
       const leading = value.match(/^\s*/u)![0]
       const trailing = value.match(/\s*$/u)![0]
       if (leading) parts.push({ type: 'text', value: leading })
-      parts.push({ type: 'strong', children: parseInlineFragment(value.trim()) })
+      parts.push({ type: 'strong', children: parseInlineFragment(value.trim(), removeNumericCitations) })
       if (trailing) parts.push({ type: 'text', value: trailing })
       cursor = closing + 2
     }
     if (!cursor) return
-    parts.push(...parseInlineFragment(source.slice(cursor)))
+    parts.push(...parseInlineFragment(source.slice(cursor), removeNumericCitations))
     node.children = parts
   })
 
@@ -141,15 +141,17 @@ const publishingTree = (input: string): Root => {
     const source = input.slice(node.position.start.offset, node.position.end.offset)
     const parts: PhrasingContent[] = []
     let cursor = 0
-    // Keep escaped characters literal and discard unresolved footnote references.
-    const pattern = /\\[\s\S]|\[\^[^\]\s]+\]/gu
+    // Match source tokens to preserve escapes and code while removing citations.
+    const pattern = removeNumericCitations
+      ? /\\[\s\S]|\[\^[^\]\s]+\]|\[\d+\]/gu
+      : /\\[\s\S]|\[\^[^\]\s]+\]/gu
     for (const match of source.matchAll(pattern)) {
       if (match[0].startsWith('\\')) continue
-      parts.push(...parseInlineFragment(source.slice(cursor, match.index)))
+      parts.push(...parseInlineFragment(source.slice(cursor, match.index), removeNumericCitations))
       cursor = match.index + match[0].length
     }
     if (!cursor) return
-    parts.push(...parseInlineFragment(source.slice(cursor)))
+    parts.push(...parseInlineFragment(source.slice(cursor), removeNumericCitations))
     parent.children.splice(index, 1, ...parts)
     return index + parts.length
   })
@@ -394,8 +396,8 @@ const quoteToContent = (quote: Blockquote): InlineContent[][] =>
     return []
   }).filter((parts) => parts.length > 0)
 
-export const parseMarkdown = (input: string): Block[] => {
-  const tree = publishingTree(input)
+export const parseMarkdown = (input: string, { removeNumericCitations = false } = {}): Block[] => {
+  const tree = publishingTree(input, removeNumericCitations)
 
   // ChatGPT citation placeholders are article metadata, not publishable text.
   // Process prose nodes only; inline and fenced code retain literal examples.
@@ -452,6 +454,7 @@ export const parseMarkdown = (input: string): Block[] => {
         type: 'code',
         lang: current.lang ?? '',
         code: normalizeText(current.value),
+        meta: current.meta ?? undefined,
       })
       continue
     }

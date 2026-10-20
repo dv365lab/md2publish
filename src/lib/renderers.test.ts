@@ -46,6 +46,66 @@ describe('ChatGPT content reference markers', () => {
   })
 })
 
+describe('WeChat numeric citation removal', () => {
+  it('removes single and adjacent numeric citations throughout every WeChat output', () => {
+    const source = `# 资料合集[5]
+
+## 几点说明[3]
+
+客户覆盖 AI、汽车、手机等多个领域。[5][3][2]后文保留。
+
+- 历史版本以学习架构思想为主。[5]
+  - **加粗前[12]加粗后**
+  > 引用前[6]引用后
+
+| 字段[7] | 内容 |
+| --- | --- |
+| 表格前[8]表格后 | 2009–2020 |
+
+> [!IMPORTANT] 提示前[9]提示后`
+    const outputs = [
+      JSON.stringify(buildRenderNodes(source, 'wechat')),
+      renderArticle(source, 'wechat'),
+      renderClipboardArticle(source, 'wechat'),
+      renderClipboardHtml(source, 'wechat'),
+    ]
+
+    for (const output of outputs) {
+      expect(output).not.toMatch(/\[\d+\]/u)
+      for (const kept of ['资料合集', '几点说明', '领域。后文保留。', '学习架构思想为主。', '加粗前加粗后', '引用前引用后', '表格前表格后', '2009–2020', '提示前提示后']) {
+        expect(output).toContain(kept)
+      }
+    }
+    expect(renderClipboardHtml(source, 'wechat')).toContain('<strong style="font-weight:700;">加粗前加粗后</strong>')
+  })
+
+  it('omits citation-only blocks and preserves the numbering of remaining ordered items', () => {
+    const source = '正文之前\n\n# [5]\n\n[5][3][2]\n\n> [6]\n\n3. [7]\n4. 保留列表项\n\n正文之后'
+    const nodes = buildRenderNodes(source, 'wechat')
+
+    expect(nodes.map((node) => node.type)).toEqual(['paragraph', 'list', 'paragraph'])
+    expect(nodes[1]).toMatchObject({ type: 'list', ordered: true, start: 4 })
+    expect(renderClipboardArticle(source, 'wechat')).toBe('正文之前\n\n4. 保留列表项\n\n正文之后')
+  })
+
+  it('preserves code, escaped literals, ordinary brackets, image URLs and Knowledge Planet content', () => {
+    const source = '正文[5]\n\n1. 保留顺序\n\n普通[名称]与版本 AMBA 5。\\[42]\\[43]。\n\n`array[5]`\n\n```js\nconst value = array[3][2];\n```\n\n![架构图](https://example.com/diagram.png?ref=[5])'
+    const nodes = buildRenderNodes(source, 'wechat')
+    const text = renderClipboardArticle(source, 'wechat')
+    const html = renderClipboardHtml(source, 'wechat')
+
+    expect(text).not.toContain('正文[5]')
+    for (const output of [text, html]) {
+      for (const kept of ['普通[名称]', 'AMBA 5', '[42][43]', 'array[5]', 'array[3][2]', 'https://example.com/diagram.png?ref=[5]']) {
+        expect(output).toContain(kept)
+      }
+    }
+    expect(nodes.find((node) => node.type === 'list')).toMatchObject({ ordered: true, start: 1 })
+    expect(nodes.find((node) => node.type === 'image')).toMatchObject({ src: 'https://example.com/diagram.png?ref=[5]' })
+    expect(renderClipboardArticle(source, 'zsxq')).toContain('正文[5]')
+  })
+})
+
 describe('remove every hyperlink from published content', () => {
   const source = `前文 [community.cadence](https://community.cadence.com/example) 后文。
 
@@ -629,14 +689,19 @@ console.log('hello')
     expect(html.match(/<strong\b/g)).toHaveLength(3)
   })
 
-  it('copies wechat headings with a compact neutral hierarchy', () => {
+  it('copies wechat headings with distinct inline colors and the existing compact hierarchy', () => {
     const html = renderClipboardHtml('# 一级标题\n\n## 二级标题\n\n### 三级标题', 'wechat')
 
     expect(html).toContain('font-size:26px;line-height:1.4;')
     expect(html).toContain('font-size:22px;line-height:1.45;')
     expect(html).toContain('font-size:20px;line-height:1.55;')
-    expect(html.match(/color:#1f2937;font-weight:700/g)).toHaveLength(3)
-    expect(html.match(/<strong>/g)).toHaveLength(3)
+    const copied = document.createElement('div')
+    copied.innerHTML = html
+    const headings = Array.from(copied.querySelectorAll<HTMLElement>('h1, h2, h3'))
+    const colors = ['rgb(29, 78, 216)', 'rgb(124, 58, 237)', 'rgb(15, 118, 110)']
+    expect(headings.map((heading) => heading.style.color)).toEqual(colors)
+    expect(headings.map((heading) => heading.querySelector('strong')?.style.color)).toEqual(colors)
+    expect(headings.map((heading) => heading.style.fontWeight)).toEqual(['700', '700', '700'])
   })
 
   it('uses compact explicit spacing between adjacent zsxq headings', () => {
@@ -838,5 +903,71 @@ describe('wechat soft line breaks in clipboard html', () => {
     expect(paragraphs.map((paragraph) => paragraph.textContent)).toEqual(['第一行', '第二行', '第三行'])
     expect(paragraphs[0].querySelector('strong')?.textContent).toBe('第一行')
     expect(paragraphs[1].querySelector('strong')?.textContent).toBe('第二行')
+  })
+})
+
+describe('thematic break retention for card layouts', () => {
+  const source = '# 标题\n\n第一段\n\n---\n\n## 小节\n\n第二段'
+
+  it('drops thematic breaks by default so article outputs stay unchanged', () => {
+    expect(buildRenderNodes(source, 'wechat').map((node) => node.type)).toEqual(['heading', 'paragraph', 'heading', 'paragraph'])
+  })
+
+  it('keeps thematic breaks as explicit nodes when requested without affecting section numbering', () => {
+    const nodes = buildRenderNodes(source, 'wechat', {}, { keepThematicBreaks: true })
+    expect(nodes.map((node) => node.type)).toEqual(['heading', 'paragraph', 'thematicBreak', 'heading', 'paragraph'])
+    expect(nodes[3]).toMatchObject({ type: 'heading', level: 2, text: '一、小节' })
+  })
+})
+
+describe('code fence options and line markers', () => {
+  const source = [
+    '```sv:42 {43}',
+    'always_ff @(posedge clk) begin',
+    '  cnt <= cnt + 1; // [!code ++]',
+    '  cnt <= cnt - 1; // [!code --]',
+    '  ovf <= &cnt;    // [!code warning] 注意位宽',
+    'end',
+    '```',
+  ].join('\n')
+
+  it('keeps clean code, the plain language and absolute decorations on code nodes', () => {
+    const [node] = buildRenderNodes(source, 'wechat')
+    expect(node).toEqual({
+      type: 'code',
+      label: '代码示例（sv）',
+      code: 'always_ff @(posedge clk) begin\n  cnt <= cnt + 1;\n  cnt <= cnt - 1;\n  ovf <= &cnt;\nend',
+      trailingColon: false,
+      lang: 'sv',
+      startLine: 42,
+      decorations: {
+        43: { kind: 'add' },
+        44: { kind: 'remove' },
+        45: { kind: 'warning', note: '注意位宽' },
+      },
+    })
+  })
+
+  it.each(['zsxq', 'wechat'] as const)('leaves no marker or fence option in any %s output', (platform) => {
+    const outputs = [
+      renderArticle(source, platform),
+      renderClipboardArticle(source, platform),
+      renderClipboardHtml(source, platform),
+    ]
+    for (const output of outputs) {
+      expect(output).not.toContain('[!code')
+      expect(output).not.toContain('sv:42')
+      expect(output).toContain('代码示例（sv）')
+      expect(output).toMatch(/cnt (?:<|&lt;)= cnt \+ 1;/u)
+    }
+  })
+
+  it('omits optional fields for plain fences', () => {
+    expect(buildRenderNodes('```\nplain\n```', 'zsxq')[0]).toEqual({
+      type: 'code',
+      label: '代码示例',
+      code: 'plain',
+      trailingColon: true,
+    })
   })
 })

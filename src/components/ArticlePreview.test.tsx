@@ -195,7 +195,7 @@ describe('ArticlePreview', () => {
 
   it('uses the compact wechat heading palette and renders callout labels cleanly', () => {
     const nodes = buildRenderNodes(
-      '# 一级标题\n\n> [!IMPORTANT] 关注公众号后回复关键词。',
+      '# 一级标题\n\n## 二级标题\n\n### 三级标题\n\n> [!IMPORTANT] 关注公众号后回复关键词。',
       'wechat',
     )
 
@@ -209,7 +209,9 @@ describe('ArticlePreview', () => {
     )
 
     expect(screen.getByTestId('wechat-preview')).toHaveClass('article-output-wechat')
-    expect(screen.getByText('一级标题')).toHaveStyle({ color: '#1f2937', fontWeight: '700' })
+    expect(screen.getByText('一级标题')).toHaveStyle({ color: '#1d4ed8', fontWeight: '700' })
+    expect(screen.getByText('一、二级标题')).toHaveStyle({ color: '#7c3aed', fontWeight: '700' })
+    expect(screen.getByText('三级标题')).toHaveStyle({ color: '#0f766e', fontWeight: '700' })
     expect(screen.getByText('重要提示')).toBeTruthy()
     expect(screen.queryByText(/\[!IMPORTANT\]/)).toBeNull()
   })

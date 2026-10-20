@@ -7,9 +7,14 @@ export type MarkdownBundle = {
   imageSources: ImageSourceMap
   resolvedImageCount: number
   unresolvedImageReferences: string[]
+  sourceKind?: 'markdown' | 'pptx'
+  slideCount?: number
+  importNotes?: string[]
 }
 
 const markdownExtensionPattern = /\.(?:md|markdown)$/i
+const pptxExtensionPattern = /\.pptx$/i
+const legacyPptExtensionPattern = /\.(?:ppt|pps|pot)$/i
 const imageExtensionPattern = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i
 
 const normalizePath = (value: string) => {
@@ -115,5 +120,38 @@ export const loadMarkdownBundle = async (selectedFiles: Iterable<File>): Promise
     imageSources,
     resolvedImageCount,
     unresolvedImageReferences,
+  }
+}
+
+/** Entry point for the import button: one Markdown file (plus images) or one .pptx deck. */
+export const loadSourceBundle = async (selectedFiles: Iterable<File>): Promise<MarkdownBundle> => {
+  const files = Array.from(selectedFiles)
+  if (files.some((file) => legacyPptExtensionPattern.test(file.name))) {
+    throw new Error('暂不支持旧版 .ppt 文件，请在 PowerPoint 中另存为 .pptx 后再导入。')
+  }
+
+  const decks = files.filter((file) => pptxExtensionPattern.test(file.name))
+  if (decks.length === 0) {
+    if (!files.some((file) => markdownExtensionPattern.test(file.name))) {
+      throw new Error('请选择一个 .md、.markdown 或 .pptx 文件。')
+    }
+    return loadMarkdownBundle(files)
+  }
+  if (decks.length > 1 || files.some((file) => markdownExtensionPattern.test(file.name))) {
+    throw new Error('一次只能导入一个 Markdown 或 PPTX 文件。')
+  }
+
+  const { loadPptxFile } = await import('./pptxImport')
+  const deck = decks[0]
+  const conversion = await loadPptxFile(deck)
+  return {
+    markdown: conversion.markdown,
+    markdownFileName: deck.name,
+    imageSources: conversion.imageSources,
+    resolvedImageCount: Object.keys(conversion.imageSources).length,
+    unresolvedImageReferences: [],
+    sourceKind: 'pptx',
+    slideCount: conversion.slideCount,
+    importNotes: conversion.notes,
   }
 }

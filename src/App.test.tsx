@@ -41,7 +41,7 @@ describe('Knowledge Planet article length limit', () => {
 
   it.each([false, true])('copies every part without losing A181 (immersive=%s)', async (immersive) => {
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: longArticle } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: longArticle } })
     if (immersive) fireEvent.click(screen.getAllByText('整屏查看')[0])
     const surface = immersive ? within(screen.getByRole('dialog')) : screen
 
@@ -73,7 +73,7 @@ describe('Knowledge Planet article length limit', () => {
 
   it('keeps the global table width when copying the second part and resets for new input', async () => {
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: longArticle } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: longArticle } })
     const preview = within(screen.getByTestId('zsxq-output'))
     fireEvent.click(preview.getAllByText('调整列宽')[1])
     fireEvent.change(preview.getByRole('spinbutton', { name: '第二表 列宽 (px)' }), {
@@ -86,10 +86,10 @@ describe('Knowledge Planet article length limit', () => {
     ))
     await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '新的短文章' } })
-    expect(screen.queryByRole('combobox')).toBeNull()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: '新的短文章' } })
+    expect(screen.queryByRole('combobox', { name: /复制篇章/ })).toBeNull()
     expect(screen.getByRole('button', { name: '复制文章' })).toBeEnabled()
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: longArticle } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: longArticle } })
     expect(screen.getByRole('combobox', { name: '知识星球复制篇章' })).toHaveValue('0')
   })
 
@@ -104,7 +104,7 @@ describe('Knowledge Planet article length limit', () => {
 
   it('blocks an oversized indivisible block with a visible explanation', () => {
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '字'.repeat(100000) } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: '字'.repeat(100000) } })
     fireEvent.click(screen.getAllByText('整屏查看')[0])
     const dialog = within(screen.getByRole('dialog'))
     expect(dialog.getByRole('alert')).toHaveTextContent('单个内容块超过')
@@ -142,7 +142,7 @@ describe('App list quote preservation', () => {
 
   const enterExamples = () => {
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: markdown } })
   }
 
   const expectCompleteExamples = (container: HTMLElement) => {
@@ -205,9 +205,9 @@ describe('App attachment link removal', () => {
     { platform: 'wechat', previewIndex: 1, copyLabel: '复制' },
   ])('removes attachment links from $platform previews and copied content without changing the source', async ({ platform, previewIndex, copyLabel }) => {
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: markdown } })
 
-    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    expect(screen.getByRole('textbox', { name: 'Markdown 输入' })).toHaveValue(markdown)
     expectPublishedOutput(screen.getByTestId(`${platform}-output`).innerHTML)
 
     fireEvent.click(screen.getAllByText('整屏查看')[previewIndex])
@@ -221,7 +221,7 @@ describe('App attachment link removal', () => {
     for (const blob of Object.values(payload.items)) {
       expectPublishedOutput(await readBlobText(blob))
     }
-    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    expect(screen.getByRole('textbox', { name: 'Markdown 输入' })).toHaveValue(markdown)
   })
 })
 
@@ -235,7 +235,7 @@ describe('App web citation removal', () => {
     { platform: 'wechat', previewIndex: 1, copyLabel: '复制' },
   ])('removes citation labels and web addresses from the $platform preview and table image source', async ({ platform, previewIndex, copyLabel }) => {
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: markdown } })
 
     const preview = screen.getByTestId(`${platform}-output`)
     expect(preview).toHaveTextContent('等信号')
@@ -252,7 +252,7 @@ describe('App web citation removal', () => {
     await waitFor(() => expect(renderTablesAsDataUrls).toHaveBeenCalledTimes(1))
     const tables = (renderTablesAsDataUrls as ReturnType<typeof vi.fn>).mock.calls[0][0] as { rows: string[][] }[]
     expect(tables[0].rows).toEqual([['协议形态', '等信号', '分层结构']])
-    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    expect(screen.getByRole('textbox', { name: 'Markdown 输入' })).toHaveValue(markdown)
   })
 })
 
@@ -265,9 +265,9 @@ describe('App ChatGPT content reference cleanup', () => {
     { platform: 'wechat', previewIndex: 1, copyLabel: '复制' },
   ])('removes markers from the $platform previews and copied content', async ({ platform, previewIndex, copyLabel }) => {
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: markdown } })
 
-    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    expect(screen.getByRole('textbox', { name: 'Markdown 输入' })).toHaveValue(markdown)
     const preview = screen.getByTestId(`${platform}-output`)
     expect(preview.textContent).toContain('本期用两个故事厘清边界。')
     expect(preview.textContent).toContain('系统结构以实际项目规格为准。')
@@ -285,7 +285,7 @@ describe('App ChatGPT content reference cleanup', () => {
       expect(content).toContain('本期用两个故事厘清边界。')
       expect(content).not.toContain('chatgpt-content-reference')
     }
-    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    expect(screen.getByRole('textbox', { name: 'Markdown 输入' })).toHaveValue(markdown)
   })
 })
 
@@ -326,7 +326,7 @@ describe('App immersive preview', () => {
   it('copies zsxq tables as inline images in html-only rich content', async () => {
     render(<App />)
 
-    fireEvent.change(screen.getByRole('textbox'), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), {
       target: {
         value: `## 一、先看结论：四种环境到底有什么不同
 
@@ -365,7 +365,7 @@ describe('App immersive preview', () => {
       '有兴趣的人请联系。',
     ]
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: markdown } })
 
     expect(screen.getByTestId('wechat-output').textContent).toContain(expected.slice(0, 4).join('\n'))
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
@@ -376,7 +376,7 @@ describe('App immersive preview', () => {
 
     expect(Array.from(copiedDocument.body.querySelectorAll(':scope > p'), (paragraph) => paragraph.textContent)).toEqual(expected)
     expect(await readBlobText(payload.items['text/plain'])).toContain(expected.slice(0, 4).join('\n'))
-    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    expect(screen.getByRole('textbox', { name: 'Markdown 输入' })).toHaveValue(markdown)
   })
 
   it('copies each wechat list label and its explanation in one paragraph', async () => {
@@ -387,9 +387,9 @@ describe('App immersive preview', () => {
       'Synchronous：说明它的相关接口操作与时钟建立了规定的时序关系。',
     ]
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: markdown } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), { target: { value: markdown } })
 
-    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    expect(screen.getByRole('textbox', { name: 'Markdown 输入' })).toHaveValue(markdown)
     const previewItems = within(screen.getByTestId('wechat-output')).getAllByRole('listitem')
     expect(previewItems.map((item) => item.textContent)).toEqual(expectedItems)
     previewItems.forEach((item, index) => {
@@ -413,13 +413,13 @@ describe('App immersive preview', () => {
       expect(item.textContent).toBe(expectedItems[index])
       expect(item.querySelector('br')).toBeNull()
     })
-    expect(screen.getByRole('textbox')).toHaveValue(markdown)
+    expect(screen.getByRole('textbox', { name: 'Markdown 输入' })).toHaveValue(markdown)
   })
 
   it('copies wechat tables as inline images while keeping plain text fallback', async () => {
     render(<App />)
 
-    fireEvent.change(screen.getByRole('textbox'), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), {
       target: {
         value: `表格之前
 
@@ -466,7 +466,7 @@ describe('App immersive preview', () => {
   it('shows zsxq preview as a visual table', () => {
     render(<App />)
 
-    fireEvent.change(screen.getByRole('textbox'), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), {
       target: {
         value: `## 一、先看结论：四种环境到底有什么不同
 
@@ -481,7 +481,7 @@ describe('App immersive preview', () => {
 
   it('uses an adjusted ID width in both previews and both table-copy actions', async () => {
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox'), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Markdown 输入' }), {
       target: {
         value: '| ID | Test Point | 期望 |\n| --- | --- | --- |\n| EX-L01 | exclusive burst | 合法 |',
       },
@@ -517,7 +517,7 @@ describe('App immersive preview', () => {
     })
     const image = new File(['fake-png'], 'local.png', { type: 'image/png' })
 
-    fireEvent.change(screen.getByLabelText('导入 Markdown/图片'), {
+    fireEvent.change(screen.getByLabelText('导入 Markdown/PPTX/图片'), {
       target: { files: [markdown, image] },
     })
 
