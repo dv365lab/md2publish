@@ -35,13 +35,6 @@ if [[ "$RUNNING_PAGE" == *'<title>md2publish</title>'* ]]; then
   exit 0
 fi
 
-if /usr/sbin/lsof -n -P -iTCP:43187 -sTCP:LISTEN >/dev/null 2>&1; then
-  echo '[错误] 端口 43187 已被其他程序占用。'
-  echo '请关闭占用该端口的程序后，再重新双击 start-dev.command。'
-  pause_on_error
-  exit 1
-fi
-
 NPM_BIN="$(command -v npm)"
 if [[ -z "$NPM_BIN" ]]; then
   echo '[错误] 未找到 npm。'

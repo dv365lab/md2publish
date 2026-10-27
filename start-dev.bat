@@ -17,15 +17,6 @@ if not errorlevel 1 (
     exit /b 0
 )
 
-rem ---- Do not open another app when it owns the port ----
-powershell -NoProfile -Command "if (Get-NetTCPConnection -State Listen -LocalPort 43187 -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
-if not errorlevel 1 (
-    echo [ERROR] Port 43187 is used by another app.
-    echo Close that app and run start-dev.bat again.
-    pause
-    exit /b 1
-)
-
 rem ---- Check that npm is available ----
 where npm >nul 2>&1
 if errorlevel 1 (
@@ -48,6 +39,7 @@ if not exist "node_modules\vite" (
 
 rem ---- Start the dev server in its own window ----
 rem The window stays open; press Ctrl+C in it (or close it) to stop the server.
-rem Vite will auto-open http://127.0.0.1:43187/ when ready.
+rem Vite auto-opens the actual ready URL. If the preferred port is occupied,
+rem it automatically tries the next available port instead of failing.
 start "md2publish dev server" cmd /k "npm run dev"
 endlocal
